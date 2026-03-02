@@ -1,0 +1,167 @@
+# Poly Mind — ESCX Test Vectors
+# Validates corpus ingestion, inference, memory retrieval,
+# legacy snapshots, classification, insight generation, and telemetry isolation
+
+circuit_id: esn.polylabs.polymind
+test_name: polymind_core
+vector_count: 7
+
+vectors:
+  - name: "happy path — write corpus entry and retrieve by semantic query"
+    category: happy_path
+    inputs:
+      operation: "write_corpus"
+      corpus_id: "corpus-001"
+      entry:
+        content_encrypted: "ML-KEM-1024:0xfedcba98..."
+        content_type: "text/plain"
+        embedding_dims: 768
+        timestamp_us: 1709000000000
+        tags: ["journal", "personal"]
+      spark_identity: "spark-polymind-v1:alice-prime-id"
+    expected_outputs:
+      status: "written"
+      entry_id: "entry-001"
+      scatter_cas_ref: "cas://polymind/corpus-001/entry-001"
+      encrypted_at_rest: true
+      corpus_writes_counter: 1
+    pass_criteria:
+      corpus_persisted: true
+      encryption_applied: true
+      scatter_cas_stored: true
+      counter_incremented: true
+
+  - name: "happy path — run inference on local ESLM model"
+    category: happy_path
+    inputs:
+      operation: "run_inference"
+      model_id: "eslm-personal-v1"
+      prompt_encrypted: "ML-KEM-1024:0x11223344..."
+      context_window: 4096
+      max_tokens: 256
+      temperature: 0.7
+      spark_identity: "spark-polymind-v1:alice-prime-id"
+    expected_outputs:
+      status: "completed"
+      response_encrypted: true
+      tokens_generated_min: 1
+      tokens_generated_max: 256
+      latency_ms_max: 5000
+      inference_requests_counter: 1
+    pass_criteria:
+      inference_completed: true
+      response_encrypted_in_transit: true
+      token_limit_respected: true
+      counter_incremented: true
+
+  - name: "edge case — memory retrieval with zero matching results"
+    category: edge_case
+    inputs:
+      operation: "retrieve_memory"
+      corpus_id: "corpus-empty"
+      query_embedding: [0.1, 0.2, 0.3, 0.4, 0.5]
+      similarity_threshold: 0.95
+      max_results: 10
+      spark_identity: "spark-polymind-v1:bob-prime-id"
+    expected_outputs:
+      status: "no_match"
+      results: []
+      result_count: 0
+      memory_retrievals_counter: 1
+    pass_criteria:
+      graceful_empty_response: true
+      no_hallucinated_results: true
+      counter_still_incremented: true
+
+  - name: "crypto — legacy snapshot with attested merkle chain"
+    category: crypto
+    inputs:
+      operation: "snapshot_legacy"
+      corpus_id: "corpus-001"
+      snapshot_type: "full"
+      spark_identity: "spark-polymind-v1:alice-prime-id"
+      witness_config:
+        witness_count: 3
+        threshold: 2
+        attestation_type: "PoVC"
+    expected_outputs:
+      status: "attested"
+      snapshot_id: "snap-001"
+      merkle_root_length: 32
+      witness_signatures: 3
+      ml_dsa_87_signed: true
+      legacy_snapshots_counter: 1
+    pass_criteria:
+      merkle_chain_valid: true
+      witness_threshold_met: true
+      pq_signatures_verified: true
+      snapshot_immutable: true
+
+  - name: "crypto — classification with encrypted labels"
+    category: crypto
+    inputs:
+      operation: "classify_content"
+      content_encrypted: "ML-KEM-1024:0xaabbccdd..."
+      taxonomy: ["personal", "work", "health", "financial", "creative"]
+      spark_identity: "spark-polymind-v1:carol-prime-id"
+    expected_outputs:
+      status: "classified"
+      primary_label_encrypted: true
+      confidence_min: 0.0
+      confidence_max: 1.0
+      labels_never_plaintext: true
+      classify_operations_counter: 1
+    pass_criteria:
+      classification_performed: true
+      labels_encrypted_at_rest: true
+      no_plaintext_label_leakage: true
+
+  - name: "blind telemetry isolation — polymind metrics invisible to sibling products"
+    category: telemetry_isolation
+    inputs:
+      operation: "write_corpus"
+      corpus_id: "corpus-isolation-test"
+      entry:
+        content_encrypted: "ML-KEM-1024:0x55667788..."
+        content_type: "text/plain"
+        embedding_dims: 768
+      spark_identity: "spark-polymind-v1:dave-prime-id"
+      telemetry_context:
+        lex_namespace: "esn/polylabs/polymind"
+        hkdf_context: "poly-mind-v1"
+    expected_outputs:
+      telemetry_emitted: true
+      telemetry_namespace: "esn/polylabs/polymind"
+      cross_product_leakage: false
+      metrics_visible_to_polypass: false
+      metrics_visible_to_polyoauth: false
+      metrics_visible_to_polywallet: false
+      hkdf_context_isolated: true
+    pass_criteria:
+      lex_namespace_scoped: true
+      no_cross_product_fanup: true
+      hkdf_derivation_independent: true
+      blind_to_sibling_products: true
+
+  - name: "error handling — insight generation on corrupted corpus"
+    category: error_handling
+    inputs:
+      operation: "generate_insight"
+      corpus_id: "corpus-corrupted"
+      insight_type: "weekly_summary"
+      spark_identity: "spark-polymind-v1:eve-prime-id"
+      corpus_state:
+        entry_count: 50
+        corrupted_entries: 48
+        integrity_check_pass_rate: 0.04
+    expected_outputs:
+      status: "rejected"
+      error_code: "E_CORPUS_INTEGRITY"
+      insight_generated: false
+      insight_generates_counter: 0
+      repair_suggested: true
+    pass_criteria:
+      integrity_check_failed: true
+      no_insight_from_corrupted_data: true
+      error_code_specific: true
+      repair_guidance_provided: true

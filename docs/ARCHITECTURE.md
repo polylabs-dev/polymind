@@ -2,7 +2,7 @@
 
 **Version**: 3.0
 **Date**: February 2026
-**Platform**: eStream v0.8.3
+**Platform**: eStream v0.9.1
 **Upstream**: PolyKit v0.3.0, eStream scatter-cas, graph/DAG constructs
 **Build Pipeline**: FastLang (.fl) → ESCIR → Rust/WASM codegen → .escd
 **Status**: Concept
@@ -22,7 +22,7 @@ Poly Mind is a personal ESLM corpus and digital legacy system. It builds a priva
 | Ingestion state | Implicit | `state_machine ingestion_lifecycle` with classification propagation |
 | Circuit format | ESCIR YAML (`circuit.escir.yaml`) | FastLang `.fl` with PolyKit profiles |
 | RBAC | Per-circuit annotations | eStream `rbac.fl` composed via PolyKit |
-| Platform | eStream v0.8.1 | eStream v0.8.3 |
+| Platform | eStream v0.8.1 | eStream v0.9.1 |
 
 ---
 
@@ -549,6 +549,75 @@ For users in oppressive environments:
 - Traffic mimicry for state sync
 - Emergency purge: SPARK biometric + panic gesture = instant wipe
 - Classification EPHEMERAL for in-session-only knowledge (auto-purges on legacy trigger)
+
+---
+
+## Stratum & Cortex Integration
+
+All Poly Mind graph and DAG constructs use the full Stratum+Cortex pattern. Stratum provides typed, overlay-driven graph/DAG storage with CSR layout (hot/warm/cold tiers). Cortex provides AI governance — automatic classification, anomaly detection, redaction, and insight generation — applied declaratively at the `data` node level.
+
+### Knowledge Corpus Graph (Stratum + Cortex)
+
+| Node Type | Cortex Policy | Rationale |
+|-----------|---------------|-----------|
+| `DocumentNode` | `redact [content_encrypted, embedding_vector]`, `obfuscate [source_path, author_id]`, `infer on_write`, `on_anomaly alert "mind-team"`, `on_classification auto_apply`, `on_suggestion store "cortex/mind/insights"` | Document content and embeddings are never exposed in logs or analytics. Source path and author are obfuscated. Classification is auto-applied on ingestion. Anomalies (mass ingestion, unexpected sources) alert the team. |
+| `ConceptNode` | `obfuscate [extracted_by]`, `infer on_write`, `on_suggestion store "cortex/mind/concept_links"` | Extraction provenance is obfuscated. Cortex suggests concept merges and new links on each write. |
+| `RelationshipNode` | `infer on_read` | Relationships are re-evaluated on read for temporal relevance. |
+
+**Graph features**: `overlay curate delta_curate` (relevance, access time, citations, confidence), `storage csr { hot @bram, warm @ddr, cold @nvme }`, `ai_feed corpus_insight` with predict/suggest/confidence, `observe threshold`, `series` with merkle chain + lattice imprint + witness attestation.
+
+### Legacy Governance DAG (Stratum + Cortex)
+
+| Node Type | Cortex Policy | Rationale |
+|-----------|---------------|-----------|
+| `GovernanceNode` | `redact [guardian_keys, trigger_conditions, share_encrypted]`, `obfuscate [guardian_id]`, `infer on_write`, `on_anomaly alert "mind-legacy"`, `on_classification auto_apply`, `on_suggestion store "cortex/mind/legacy_alerts"` | Guardian keys and shares are never exposed. Guardian identity is obfuscated. Any mutation triggers anomaly evaluation. |
+| `TriggerNode` | `redact [evidence_hash, verification_hash]`, `obfuscate [submitted_by]`, `infer on_write`, `on_anomaly alert "mind-legacy"` | Trigger evidence is redacted from observability. Submitter identity is obfuscated. |
+| `TransferBatchNode` | `infer on_write`, `on_suggestion store "cortex/mind/transfer_audit"` | Transfers generate audit suggestions for compliance review. |
+| `PurgeBatchNode` | `infer on_write`, `on_anomaly alert "mind-legacy"` | Purges are anomaly-monitored to detect unauthorized deletion attempts. |
+
+**DAG features**: `enforce acyclic` (completed transfers cannot be rolled back), `sign ml_dsa_87` (every mutation PQ-signed), `storage merkle_csr`, `attest povc { witness threshold(3,5) }`, `observe threshold` with 0.95 anomaly score and 600s baseline window.
+
+### Cortex Data Flow
+
+```
+Document ingestion
+    │
+    ▼
+Cortex on_write (DocumentNode)
+    ├── Auto-classify sensitivity
+    ├── Redact content_encrypted + embedding_vector from observability
+    ├── Obfuscate source_path + author_id
+    ├── Feed corpus_insight AI model
+    │       ├── predict: emerging_topics, relevance_decay, contradiction_clusters
+    │       └── suggest: concept_merges, document_connections, classification_upgrades
+    └── If anomaly detected → alert "mind-team"
+
+Guardian governance mutation
+    │
+    ▼
+Cortex on_write (GovernanceNode)
+    ├── Redact guardian_keys + trigger_conditions + share_encrypted
+    ├── Obfuscate guardian_id
+    ├── If anomaly (unauthorized designation, share tampering) → alert "mind-legacy"
+    └── Auto-apply classification based on designation_type
+```
+
+### Circuit Stratum Annotations
+
+All production circuits use the full Stratum annotation set:
+
+```fastlang
+circuit example_circuit(...)
+    lex esn/global/org/polylabs/mind      // lex namespace isolation
+    status production                       // deployment status
+    precision C                             // computational precision
+    povc true                               // proof of valid computation
+    profile poly_framework_sensitive        // PolyKit security profile
+    observe metrics: [...]                  // StreamSight observability
+    monitor "..." { ... }                   // threshold monitoring
+    invariant "..." { ... }                 // compile-time invariants
+    meters [compute_cycles, memory_bytes]   // metering dimensions
+```
 
 ---
 

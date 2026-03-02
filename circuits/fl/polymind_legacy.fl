@@ -1,0 +1,412 @@
+/// Poly Mind Legacy — Digital legacy with K-of-N guardian governance
+/// PQ lattice-based threshold secret sharing
+/// Graduated transfer: PUBLIC (day 0), INTERNAL (day 30), SENSITIVE (day 90), RESTRICTED (day 180)
+/// govern lex esn/global/org/polylabs/mind
+
+import polykit_identity
+import polykit_metering
+
+// ── Types ───────────────────────────────────────────────────────
+
+type GuardianConfig = struct {
+    guardian_id: bytes(16),
+    guardian_pubkey: bytes(2592),
+    guardian_kem_pubkey: bytes(1568),
+    designation_type: u8,
+    share_index: u8,
+}
+
+type LegacyTrigger = struct {
+    trigger_id: bytes(16),
+    trigger_type: u8,
+    evidence_hash: bytes(32),
+    submitted_by: bytes(16),
+    submitted_at: u64,
+    signatures: list<bytes(4627)>,
+    signature_count: u8,
+}
+
+type TransferTier = struct {
+    tier: u8,
+    classification_level: u8,
+    unlock_day: u32,
+    description: string,
+}
+
+type AliveProof = struct {
+    proof_id: bytes(16),
+    user_id: bytes(16),
+    spark_signature: bytes(4627),
+    biometric_hash: bytes(32),
+    timestamp: u64,
+}
+
+type LegacyState = struct {
+    user_id: bytes(16),
+    threshold_k: u8,
+    threshold_n: u8,
+    guardians: list<GuardianConfig>,
+    active_trigger: option<LegacyTrigger>,
+    current_phase: u8,
+    last_alive_proof: u64,
+}
+
+// ── Circuits ────────────────────────────────────────────────────
+
+circuit designate_guardian(
+    user_id: bytes(16),
+    guardian: GuardianConfig,
+    threshold_k: u8,
+    threshold_n: u8,
+    signing_sk: bytes(4896),
+) -> GovernanceNode
+    lex esn/global/org/polylabs/mind/legacy
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time true
+    observe metrics: [guardians_designated, guardian_designation_latency_ns]
+    monitor "guardian_designation_rate" { guardians_designated < 10/s }
+    invariant "k_leq_n" { threshold_k <= threshold_n }
+    invariant "min_guardians" { threshold_n >= 3 }
+    invariant "max_guardians" { threshold_n <= 9 }
+    invariant "valid_share_index" { guardian.share_index < threshold_n }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, now, mlkem_encaps]
+    test golden "designate_3_of_5" {
+        let sk = bytes(4896, 0xBB)
+        let uid = bytes(16, 0x01)
+        let gc = GuardianConfig {
+            guardian_id: bytes(16, 0x02), guardian_pubkey: bytes(2592, 0xAA),
+            guardian_kem_pubkey: bytes(1568, 0xCC), designation_type: 0, share_index: 0,
+        }
+        let node = designate_guardian(uid, gc, 3, 5, sk)
+        assert len(node.governance_id) == 16
+    }
+    kat_vector "sha3_256_gov_seed" {
+        input: bytes(64, 0xAA)
+        function: sha3_256
+        expected: sha3_256(bytes(64, 0xAA))
+    }
+    kat_vector "mlkem_encaps_share" {
+        pk: bytes(1568, 0xCC)
+        function: mlkem_encaps
+    }
+    kat_vector "mldsa_sign_guardian" {
+        sk: bytes(4896, 0xBB)
+        message: bytes(128, 0xCC)
+        function: mldsa_sign
+    }
+{
+    let ts = now_ns() / 1000000
+    let gov_seed = concat(user_id, guardian.guardian_id, csprng(16), ts)
+    let governance_id = bit_slice(sha3_256(gov_seed), 0, 128)
+
+    let corpus_key_share = generate_lattice_share(
+        user_id, guardian.share_index, threshold_k, threshold_n
+    )
+    let encrypted_share = mlkem_encaps(guardian.guardian_kem_pubkey, corpus_key_share)
+
+    let node = GovernanceNode {
+        governance_id: governance_id,
+        guardian_id: guardian.guardian_id,
+        guardian_pubkey: guardian.guardian_pubkey,
+        guardian_kem_pubkey: guardian.guardian_kem_pubkey,
+        designation_type: guardian.designation_type,
+        share_index: guardian.share_index,
+        designated_at: ts,
+        last_confirmed_at: ts,
+    }
+
+    let _sig = mldsa_sign(signing_sk, serialize(node))
+    dag_insert(legacy_governance, node)
+    overlay_set(legacy_governance, governance_id, guardian_status, 1)
+
+    scatter_store(concat("share:", governance_id), encrypted_share, "RESTRICTED")
+
+    polykit_metering::record_usage(user_id, "mind_legacy_designate", DimensionValues {
+        executions: 1, hashes: 2, bandwidth: 0,
+        storage: 256, observables: 1, proofs: 1, circuits: 0, mpc_sessions: 0,
+    })
+
+    node
+}
+
+circuit revoke_guardian(
+    user_id: bytes(16),
+    guardian_id: bytes(16),
+    signing_sk: bytes(4896),
+) -> bool
+    lex esn/global/org/polylabs/mind/legacy
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time true
+    observe metrics: [guardians_revoked]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, now]
+{
+    let ts = now_ns() / 1000000
+    let nodes = dag_query(legacy_governance, GovernanceNode, "guardian_id", guardian_id)
+    for node in nodes {
+        overlay_set(legacy_governance, node.governance_id, guardian_status, 0)
+        let _sig = mldsa_sign(signing_sk, concat("revoke", node.governance_id, ts))
+        scatter_delete(concat("share:", node.governance_id))
+    }
+    regenerate_shares(user_id, signing_sk)
+    true
+}
+
+circuit submit_alive_proof(
+    user_id: bytes(16),
+    biometric_hash: bytes(32),
+    signing_sk: bytes(4896),
+) -> AliveProof
+    lex esn/global/org/polylabs/mind/legacy
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time true
+    observe metrics: [alive_proofs_submitted, alive_proof_latency_ns]
+    invariant "biometric_present" { len(biometric_hash) == 32 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [now]
+{
+    let ts = now_ns() / 1000000
+    let proof_id = bit_slice(sha3_256(concat(user_id, biometric_hash, ts)), 0, 128)
+    let sig = mldsa_sign(signing_sk, concat(proof_id, biometric_hash, ts))
+
+    let proof = AliveProof {
+        proof_id: proof_id,
+        user_id: user_id,
+        spark_signature: sig,
+        biometric_hash: biometric_hash,
+        timestamp: ts,
+    }
+
+    eslite_insert("alive_proofs", serialize(proof))
+
+    if state_machine_current(legacy_lifecycle, user_id) == "PENDING_VERIFICATION" {
+        state_machine_transition(legacy_lifecycle, user_id, "alive_proof_submitted")
+    }
+
+    proof
+}
+
+circuit submit_trigger(
+    guardian_id: bytes(16),
+    trigger_type: u8,
+    evidence_hash: bytes(32),
+    guardian_sk: bytes(4896),
+) -> LegacyTrigger
+    lex esn/global/org/polylabs/mind/legacy
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time true
+    observe metrics: [triggers_submitted]
+    invariant "valid_trigger_type" { trigger_type <= 2 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, now]
+{
+    let ts = now_ns() / 1000000
+    let trigger_id = bit_slice(sha3_256(concat(guardian_id, evidence_hash, ts)), 0, 128)
+    let sig = mldsa_sign(guardian_sk, concat(trigger_id, trigger_type, evidence_hash, ts))
+
+    let trigger = LegacyTrigger {
+        trigger_id: trigger_id,
+        trigger_type: trigger_type,
+        evidence_hash: evidence_hash,
+        submitted_by: guardian_id,
+        submitted_at: ts,
+        signatures: [sig],
+        signature_count: 1,
+    }
+
+    eslite_insert("legacy_triggers", serialize(trigger))
+    state_machine_transition(legacy_lifecycle, trigger.submitted_by, "trigger_submitted")
+    trigger
+}
+
+circuit collect_signatures(
+    trigger_id: bytes(16),
+    guardian_id: bytes(16),
+    signature: bytes(4627),
+    guardian_pk: bytes(2592),
+    threshold_k: u8,
+) -> LegacyTrigger
+    lex esn/global/org/polylabs/mind/legacy
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time true
+    observe metrics: [signatures_collected, threshold_met_events]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslite_insert, now]
+{
+    let trigger = eslite_query("legacy_triggers", trigger_id)
+    let valid = mldsa_verify(guardian_pk, concat(trigger_id, trigger.trigger_type, trigger.evidence_hash), signature)
+    if not valid { panic("invalid guardian signature") }
+
+    let gov_node = dag_query(legacy_governance, GovernanceNode, "guardian_id", guardian_id)
+    let status = overlay_get(legacy_governance, gov_node[0].governance_id, guardian_status)
+    if status != 1 { panic("guardian revoked or inactive") }
+
+    trigger.signatures.push(signature)
+    trigger.signature_count = trigger.signature_count + 1
+
+    if trigger.signature_count >= threshold_k {
+        state_machine_transition(legacy_lifecycle, trigger.submitted_by, "threshold_met")
+    }
+
+    eslite_insert("legacy_triggers", serialize(trigger))
+    trigger
+}
+
+circuit unlock_tier(
+    user_id: bytes(16),
+    trigger_id: bytes(16),
+    tier: TransferTier,
+    signing_sk: bytes(4896),
+) -> u32
+    lex esn/global/org/polylabs/mind/legacy
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time true
+    observe metrics: [tiers_unlocked, documents_transferred]
+    invariant "valid_tier" { tier.classification_level <= 3 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, now]
+{
+    let ts = now_ns() / 1000000
+    let trigger = eslite_query("legacy_triggers", trigger_id)
+    let days_elapsed = (ts - trigger.submitted_at) / 86400000
+
+    if days_elapsed < tier.unlock_day { panic("tier not yet eligible") }
+
+    let docs = graph_query_field(knowledge_corpus, DocumentNode, "classification", tier.classification_level)
+    let transferred = 0
+    for doc in docs {
+        let transfer_edge = TransferEdge {
+            transfer_id: bit_slice(sha3_256(concat(doc.document_id, trigger_id, ts)), 0, 128),
+            threshold_k: trigger.signature_count,
+            threshold_n: len(trigger.signatures),
+            classification_tier: tier.classification_level,
+            trigger_type: trigger.trigger_type,
+            trigger_evidence_hash: trigger.evidence_hash,
+            initiated_at: ts,
+            completed_at: ts,
+            signatures_collected: trigger.signature_count,
+        }
+        let _sig = mldsa_sign(signing_sk, serialize(transfer_edge))
+        dag_connect(legacy_governance, trigger_id, doc.document_id, transfer_edge)
+        transferred = transferred + 1
+    }
+
+    overlay_set(legacy_governance, trigger_id, transfer_phase, tier.classification_level + 1)
+    state_machine_transition(legacy_lifecycle, user_id, "tier_unlocked")
+
+    polykit_metering::record_usage(user_id, "mind_legacy_unlock", DimensionValues {
+        executions: 1, hashes: 1, bandwidth: 0,
+        storage: 0, observables: 1, proofs: 1, circuits: 0, mpc_sessions: 0,
+    })
+
+    transferred
+}
+
+circuit execute_purge(
+    user_id: bytes(16),
+    trigger_id: bytes(16),
+    signing_sk: bytes(4896),
+) -> u32
+    lex esn/global/org/polylabs/mind/legacy
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time true
+    observe metrics: [purges_executed, documents_purged]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, now]
+{
+    let ts = now_ns() / 1000000
+    let purged = 0
+
+    let sovereign_docs = graph_query_field(knowledge_corpus, DocumentNode, "classification", 4)
+    let ephemeral_docs = graph_query_field(knowledge_corpus, DocumentNode, "classification", 5)
+
+    for doc in concat_lists(sovereign_docs, ephemeral_docs) {
+        let purge_edge = PurgeEdge {
+            purge_id: bit_slice(sha3_256(concat(doc.document_id, trigger_id, ts)), 0, 128),
+            classification_tier: doc.classification,
+            purge_reason: 0,
+            initiated_at: ts,
+            confirmed_at: ts,
+        }
+        let _sig = mldsa_sign(signing_sk, serialize(purge_edge))
+        dag_connect(legacy_governance, trigger_id, doc.document_id, purge_edge)
+
+        scatter_delete(concat("doc:", doc.document_id))
+        graph_delete(knowledge_corpus, doc.document_id)
+        purged = purged + 1
+    }
+
+    overlay_set(legacy_governance, trigger_id, transfer_phase, 5)
+    state_machine_transition(legacy_lifecycle, user_id, "purge_executed")
+
+    polykit_metering::record_usage(user_id, "mind_legacy_purge", DimensionValues {
+        executions: 1, hashes: 0, bandwidth: 0,
+        storage: 0, observables: 1, proofs: 1, circuits: 0, mpc_sessions: 0,
+    })
+
+    purged
+}
+
+// ── Internal helpers ────────────────────────────────────────────
+
+circuit generate_lattice_share(
+    user_id: bytes(16),
+    share_index: u8,
+    k: u8,
+    n: u8,
+) -> bytes
+    lex esn/global/org/polylabs/mind/legacy
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time true
+{
+    let corpus_key = eslite_query("corpus_keys", user_id)
+    lattice_shamir_split(corpus_key, k, n, share_index)
+}
+
+circuit regenerate_shares(
+    user_id: bytes(16),
+    signing_sk: bytes(4896),
+) -> bool
+    lex esn/global/org/polylabs/mind/legacy
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time true
+    wasm_abi [eslite_query, now]
+{
+    let active = dag_query(legacy_governance, GovernanceNode, "guardian_status", 1)
+    let n = len(active)
+    let k = (n * 2 + 2) / 3
+    for i in 0..n {
+        let share = generate_lattice_share(user_id, i, k, n)
+        let encrypted = mlkem_encaps(active[i].guardian_kem_pubkey, share)
+        scatter_store(concat("share:", active[i].governance_id), encrypted, "RESTRICTED")
+    }
+    true
+}

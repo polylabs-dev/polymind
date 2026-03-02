@@ -1,0 +1,281 @@
+/// Poly Mind Insight — Proactive insight and contradiction detection
+/// ESLM compound intelligence across sessions
+/// ai_feed corpus_insight
+/// govern lex esn/global/org/polylabs/mind
+
+import polykit_identity
+import polykit_metering
+
+// ── Types ───────────────────────────────────────────────────────
+
+type InsightType = enum {
+    Connection,
+    Contradiction,
+    Pattern,
+    Summary,
+    Prediction,
+}
+
+type InsightResult = struct {
+    insight_id: bytes(16),
+    insight_type: u8,
+    source_documents: list<bytes(16)>,
+    source_concepts: list<bytes(16)>,
+    content_hash: bytes(32),
+    confidence: u16,
+    relevance: u16,
+    generated_at: u64,
+}
+
+type ContradictionReport = struct {
+    contradiction_id: bytes(16),
+    document_a: bytes(16),
+    document_b: bytes(16),
+    concept_id: bytes(16),
+    severity: u8,
+    description_hash: bytes(32),
+    detected_at: u64,
+    resolved: bool,
+}
+
+type ConnectionSuggestion = struct {
+    suggestion_id: bytes(16),
+    source_id: bytes(16),
+    target_id: bytes(16),
+    connection_type: u8,
+    strength: u16,
+    reasoning_hash: bytes(32),
+    suggested_at: u64,
+}
+
+// ── Circuits ────────────────────────────────────────────────────
+
+circuit detect_contradictions(
+    user_id: bytes(16),
+    scope_concept_ids: list<bytes(16)>,
+    signing_sk: bytes(4896),
+) -> list<ContradictionReport>
+    lex esn/global/org/polylabs/mind/insight
+    status production
+    precision C
+    povc true
+    profile poly_framework_standard
+    observe metrics: [contradiction_scans, contradictions_found, scan_latency_ns]
+    monitor "contradiction_rate" { contradictions_found / contradiction_scans < 0.3 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslm_compare, now]
+    test golden "no_contradictions_empty" {
+        let sk = bytes(4896, 0xBB)
+        let uid = bytes(16, 0x01)
+        let result = detect_contradictions(uid, [], sk)
+        assert len(result) == 0
+    }
+{
+    let ts = now_ns() / 1000000
+    let reports = []
+
+    let concepts = if len(scope_concept_ids) > 0 { scope_concept_ids }
+        else { graph_query_all(knowledge_corpus, ConceptNode) |> map |c| c.concept_id }
+
+    for concept_id in concepts {
+        let docs = graph_neighbors(knowledge_corpus, concept_id, DerivedFromEdge)
+        for i in 0..len(docs) {
+            for j in (i+1)..len(docs) {
+                let sim = eslm_compare(docs[i].embedding_hash, docs[j].embedding_hash)
+                let contradicts = eslm_detect_contradiction(docs[i].id, docs[j].id, concept_id)
+
+                if contradicts.is_contradiction {
+                    let cid = bit_slice(sha3_256(concat(docs[i].id, docs[j].id, concept_id, ts)), 0, 128)
+                    let report = ContradictionReport {
+                        contradiction_id: cid,
+                        document_a: docs[i].id,
+                        document_b: docs[j].id,
+                        concept_id: concept_id,
+                        severity: contradicts.severity,
+                        description_hash: sha3_256(contradicts.description),
+                        detected_at: ts,
+                        resolved: false,
+                    }
+
+                    let _sig = mldsa_sign(signing_sk, serialize(report))
+                    let edge = ContradictEdge {
+                        contradiction_type: contradicts.severity,
+                        severity: contradicts.severity,
+                        detected_at: ts,
+                        resolved: 0,
+                    }
+                    graph_connect(knowledge_corpus, docs[i].id, docs[j].id, edge)
+                    eslm_feed(corpus_insight, serialize(report), contradicts.severity)
+
+                    reports.push(report)
+                }
+            }
+        }
+    }
+
+    polykit_metering::record_usage(user_id, "mind_insight_contradictions", DimensionValues {
+        executions: 1, hashes: len(reports), bandwidth: 0,
+        storage: 0, observables: 0, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    reports
+}
+
+circuit suggest_connections(
+    user_id: bytes(16),
+    document_id: bytes(16),
+    max_suggestions: u16,
+) -> list<ConnectionSuggestion>
+    lex esn/global/org/polylabs/mind/insight
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+    observe metrics: [connection_suggestions, suggestions_accepted]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslm_similarity, now]
+{
+    let ts = now_ns() / 1000000
+    let doc = graph_query(knowledge_corpus, document_id)
+    let embedding = eslite_query("embeddings", doc.embedding_hash)
+
+    let similar = eslm_similarity(embedding, max_suggestions * 3)
+    let existing = graph_neighbors(knowledge_corpus, document_id, ReferencesEdge)
+        |> map |e| e.id
+    let existing_set = set(existing)
+
+    let suggestions = []
+    for candidate in similar {
+        if not existing_set.contains(candidate.id) and candidate.id != document_id {
+            let strength = candidate.similarity_score
+            let reasoning = eslm_generate(
+                concat("Why connect: ", doc.embedding_hash, " <-> ", candidate.embedding_hash), 128
+            )
+            suggestions.push(ConnectionSuggestion {
+                suggestion_id: bit_slice(sha3_256(concat(document_id, candidate.id, ts)), 0, 128),
+                source_id: document_id,
+                target_id: candidate.id,
+                connection_type: 0,
+                strength: strength,
+                reasoning_hash: sha3_256(reasoning),
+                suggested_at: ts,
+            })
+        }
+        if len(suggestions) >= max_suggestions { break }
+    }
+
+    eslm_feed(corpus_insight, serialize({ doc: document_id, suggestions: len(suggestions) }), 0)
+    suggestions
+}
+
+circuit generate_insight(
+    user_id: bytes(16),
+    topic_embedding: bytes(1024),
+    context_window: u64,
+    signing_sk: bytes(4896),
+) -> InsightResult
+    lex esn/global/org/polylabs/mind/insight
+    status production
+    precision C
+    povc true
+    profile poly_framework_standard
+    observe metrics: [insights_generated, insight_confidence_avg]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslm_generate, eslm_similarity, now]
+{
+    let ts = now_ns() / 1000000
+    let cutoff = ts - context_window
+
+    let related_docs = eslm_similarity(topic_embedding, 20)
+        |> filter |d| d.ingested_at >= cutoff
+
+    let related_concepts = []
+    for doc in related_docs {
+        let concepts = graph_neighbors(knowledge_corpus, doc.id, DerivedFromEdge)
+        related_concepts = concat_lists(related_concepts, concepts)
+    }
+
+    let insight_content = eslm_generate(
+        concat("Synthesize insight from ", len(related_docs), " documents and ",
+               len(related_concepts), " concepts"), 512
+    )
+
+    let confidence = eslm_confidence(insight_content, related_docs)
+    let insight_id = bit_slice(sha3_256(concat(user_id, topic_embedding, ts)), 0, 128)
+
+    let result = InsightResult {
+        insight_id: insight_id,
+        insight_type: 3,
+        source_documents: map(related_docs, |d| d.id),
+        source_concepts: map(related_concepts, |c| c.id),
+        content_hash: sha3_256(insight_content),
+        confidence: confidence,
+        relevance: compute_relevance(related_docs),
+        generated_at: ts,
+    }
+
+    let _sig = mldsa_sign(signing_sk, serialize(result))
+    eslm_feed(corpus_insight, serialize(result), confidence)
+
+    polykit_metering::record_usage(user_id, "mind_insight_generate", DimensionValues {
+        executions: 1, hashes: 1, bandwidth: 0,
+        storage: 0, observables: 0, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    result
+}
+
+circuit rank_insights(
+    insights: list<InsightResult>,
+    user_preferences: bytes,
+    max_results: u16,
+) -> list<InsightResult>
+    lex esn/global/org/polylabs/mind/insight
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+    observe metrics: [insight_rank_ops]
+{
+    let scored = parallel for insight in insights {
+        let pref_bonus = eslm_preference_score(insight.content_hash, user_preferences)
+        let recency_bonus = compute_recency_bonus(insight.generated_at)
+        let composite = (insight.confidence * 3 + insight.relevance * 3 + pref_bonus * 2 + recency_bonus * 2) / 10
+        { ..insight, relevance: composite }
+    }
+    sort_desc(scored, |i| i.relevance)[0..min(max_results, len(scored))]
+}
+
+// ── Internal helpers ────────────────────────────────────────────
+
+circuit compute_relevance(docs: list<QueryResultItem>) -> u16
+    lex esn/global/org/polylabs/mind/insight
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+{
+    if len(docs) == 0 { 0 }
+    else {
+        let total = 0
+        for doc in docs {
+            total = total + overlay_get(knowledge_corpus, doc.id, relevance_score)
+        }
+        total / len(docs)
+    }
+}
+
+circuit compute_recency_bonus(timestamp: u64) -> u16
+    lex esn/global/org/polylabs/mind/insight
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+{
+    let age_ms = (now_ns() / 1000000) - timestamp
+    let day_ms = 86400000
+    if age_ms < day_ms { 500 }
+    else if age_ms < day_ms * 7 { 350 }
+    else if age_ms < day_ms * 30 { 200 }
+    else { 50 }
+}

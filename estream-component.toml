@@ -1,0 +1,98 @@
+[package]
+name = "@polylabs/polymind"
+version = "0.1.0"
+description = "Personal ESLM and digital legacy — corpus ingestion, on-device inference, memory retrieval, classification, and attested legacy snapshots"
+license = "Apache-2.0"
+repository = "https://github.com/polylabs-dev/polymind"
+homepage = "https://polylabs.dev/polymind"
+readme = "README.md"
+keywords = ["eslm", "digital-legacy", "inference", "memory", "classification", "personal-ai", "pq-crypto"]
+category = "smart-circuit"
+implementation_type = "FastLang"
+status = "Active"
+
+[publisher]
+id = "b7e3a1d9f04c28561ea7b3c0d5f29184a6e80b7cd3f491025e8a6b7c0d3f4e5a"
+name = "Poly Labs"
+signing_key_id = "polylabs-signing-key-01"
+email = "engineering@polylabs.dev"
+url = "https://github.com/polylabs-dev"
+
+[escir]
+api_version = "0.9.1"
+min_platform_version = "0.9.1"
+max_platform_version = "1.0.0"
+
+[lex]
+requirements = [
+    "esn/polylabs/polymind/corpus",
+    "esn/polylabs/polymind/inference",
+    "esn/polylabs/polymind/legacy",
+    "esn/marketplace/licensing",
+]
+
+[dependencies]
+estream-spark-auth = "^0.9.1"
+estream-eslite = "^0.9.1"
+estream-scatter-cas = "^0.9.1"
+
+[pricing]
+license_type = "metered-hourly"
+share_price = "0.08"
+private_price = "0.12"
+
+[telemetry]
+schema_hash = "auto"
+metrics = [
+    "corpus_writes",
+    "inference_requests",
+    "memory_retrievals",
+    "legacy_snapshots",
+    "classify_operations",
+    "insight_generates",
+]
+aggregate_window = "1h"
+cohort_min_size = 50
+noise_budget = "0.5"
+
+[schemas]
+provides = [
+    "CorpusEntry",
+    "InferenceRequest",
+    "MemoryResult",
+    "LegacySnapshot",
+    "Classification",
+    "InsightRecord",
+]
+requires = ["SparkIdentity", "ESLiteStore", "ScatterCasRef"]
+
+[circuits]
+provides = [
+    "write_corpus",
+    "run_inference",
+    "retrieve_memory",
+    "snapshot_legacy",
+    "classify_content",
+    "generate_insight",
+]
+target = ["cpu"]
+
+[lifecycle]
+status = "active"
+breaking_change_notice_days = 90
+changelog = "CHANGELOG.md"
+
+[author]
+name = "Poly Labs"
+email = "engineering@polylabs.dev"
+url = "https://github.com/polylabs-dev"
+
+[marketplace]
+pricing = "usage-based"
+visibility = "compiled"
+
+[include]
+schemas = ["schemas/*.data.yaml"]
+circuits = ["circuits/*.fl"]
+tests = ["test_vectors/*.esz"]
+docs = ["docs/*.md", "README.md"]

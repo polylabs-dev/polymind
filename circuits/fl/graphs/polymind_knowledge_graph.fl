@@ -1,0 +1,615 @@
+/// Poly Mind Knowledge Graph — Full Stratum + Cortex graph
+/// Stratum graph storage + Cortex AI governance
+/// govern lex esn/global/org/polylabs/mind
+
+import polykit_identity
+import polykit_metering
+import polykit_governance
+
+// ── Enums ───────────────────────────────────────────────────────
+
+type Classification = enum {
+    Public,
+    Internal,
+    Sensitive,
+    Restricted,
+    Sovereign,
+    Ephemeral,
+}
+
+type SourceProduct = enum {
+    Manual,
+    Messenger,
+    Mail,
+    Files,
+    Calendar,
+    External,
+}
+
+type EntityType = enum {
+    Person,
+    Organization,
+    Location,
+    Event,
+    Topic,
+    Project,
+    Artifact,
+}
+
+type RelationshipType = enum {
+    Causal,
+    Temporal,
+    Hierarchical,
+    Associative,
+    Contradictory,
+}
+
+// ── Data: Node types (Stratum store graph + Cortex) ─────────────
+
+data DocumentNode : app v1 {
+    document_id: bytes(16),
+    content_hash: bytes(32),
+    content_encrypted: bytes,
+    classification: u8,
+    source_product: u8,
+    source_id: bytes(16),
+    source_path: string,
+    author_id: string,
+    mime_type: u16,
+    title_hash: bytes(32),
+    embedding_vector: bytes(1024),
+    embedding_hash: bytes(32),
+    word_count: u32,
+    ingested_at: u64,
+    updated_at: u64,
+}
+    store graph
+    govern lex esn/global/org/polylabs/mind
+    cortex {
+        redact [content_encrypted, embedding_vector]
+        obfuscate [source_path, author_id]
+        infer on_write
+        on_anomaly alert "mind-team"
+        on_classification auto_apply
+        on_suggestion store "cortex/mind/insights"
+    }
+
+data ConceptNode : app v1 {
+    concept_id: bytes(16),
+    embedding_vector: bytes(1024),
+    embedding_hash: bytes(32),
+    topic: bytes(256),
+    entity_type: u8,
+    extracted_by: string,
+    document_count: u32,
+    first_seen_at: u64,
+    last_updated_at: u64,
+}
+    store graph
+    govern lex esn/global/org/polylabs/mind
+    cortex {
+        obfuscate [extracted_by]
+        infer on_write
+        on_suggestion store "cortex/mind/concept_links"
+    }
+
+data RelationshipNode : app v1 {
+    relationship_id: bytes(16),
+    relationship_type: u8,
+    subject_id: bytes(16),
+    object_id: bytes(16),
+    strength: u16,
+    evidence_hash: bytes(32),
+    temporal_start: u64,
+    temporal_end: u64,
+    created_at: u64,
+}
+    store graph
+    govern lex esn/global/org/polylabs/mind
+    cortex {
+        infer on_read
+    }
+
+// ── Edge types ──────────────────────────────────────────────────
+
+type ReferencesEdge = struct {
+    edge_id: bytes(16),
+    context: bytes(256),
+    reference_type: u8,
+    confidence: u16,
+    created_at: u64,
+}
+
+type DerivedFromEdge = struct {
+    edge_id: bytes(16),
+    derivation_method: u8,
+    confidence: u16,
+    source_span: bytes(32),
+    derived_at: u64,
+}
+
+type ContradictEdge = struct {
+    edge_id: bytes(16),
+    contradiction_type: u8,
+    severity: u8,
+    description_hash: bytes(32),
+    detected_at: u64,
+    resolved: u8,
+    resolution_hash: bytes(32),
+}
+
+// ── Graph definition ────────────────────────────────────────────
+
+graph knowledge_corpus {
+    node DocumentNode
+    node ConceptNode
+    node RelationshipNode
+    edge ReferencesEdge
+    edge DerivedFromEdge
+    edge ContradictEdge
+
+    overlay relevance_score: u16 curate delta_curate
+    overlay last_accessed_ns: u64 curate delta_curate
+    overlay citation_count: u32 curate delta_curate
+    overlay confidence: u16 curate delta_curate
+
+    storage csr {
+        hot @bram,
+        warm @ddr,
+        cold @nvme,
+    }
+
+    ai_feed corpus_insight {
+        predict [emerging_topics, relevance_decay, contradiction_clusters]
+        suggest [concept_merges, document_connections, classification_upgrades]
+        confidence 0.75
+    }
+
+    observe knowledge_corpus: [relevance_score, citation_count, confidence] threshold: {
+        anomaly_score 0.80
+        baseline_window 300
+    }
+}
+
+series corpus_series: knowledge_corpus
+    merkle_chain true
+    lattice_imprint true
+    witness_attest true
+
+// ── State Machine: Ingestion Lifecycle ──────────────────────────
+
+state_machine ingestion_lifecycle {
+    initial PENDING
+    persistence wal
+    terminal [PURGED]
+    li_anomaly_detection true
+
+    PENDING -> CLASSIFYING when content_received guard source_authorized
+    CLASSIFYING -> INDEXED when classification_assigned guard classification_valid
+    CLASSIFYING -> REJECTED when classification_failed
+    INDEXED -> ACTIVE when embedding_complete guard corpus_updated
+    ACTIVE -> STALE when relevance_decayed guard decay_threshold_met
+    ACTIVE -> ACTIVE when re_referenced guard relevance_refreshed
+    ACTIVE -> PURGED when user_deleted
+    ACTIVE -> PURGED when legacy_purge guard classification_ephemeral
+    STALE -> ACTIVE when re_referenced guard relevance_refreshed
+    STALE -> PURGED when prune_expired
+}
+
+// ── Circuits: Node insertion ────────────────────────────────────
+
+circuit insert_document(
+    user_id: bytes(16),
+    content_encrypted: bytes,
+    content_hash: bytes(32),
+    classification: u8,
+    source_product: u8,
+    source_id: bytes(16),
+    source_path: string,
+    mime_type: u16,
+    title_hash: bytes(32),
+    embedding_vector: bytes(1024),
+    word_count: u32,
+    signing_sk: bytes(4896),
+) -> DocumentNode
+    lex esn/global/org/polylabs/mind
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time false
+    observe metrics: [documents_inserted, document_insert_latency_ns, corpus_size_bytes]
+    monitor "document_ingestion_rate" { documents_inserted < 100/s }
+    invariant "content_nonempty" { len(content_encrypted) > 0 }
+    invariant "valid_classification" { classification <= 5 }
+    invariant "valid_source" { source_product <= 5 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, now]
+    test golden "insert_manual_document" {
+        let sk = bytes(4896, 0xBB)
+        let uid = bytes(16, 0x01)
+        let content = bytes(512, 0xCC)
+        let embedding = bytes(1024, 0xDD)
+        let doc = insert_document(uid, content, sha3_256(content), 0, 0,
+            bytes(16, 0x00), "/notes/test.md", 1, sha3_256("Test"), embedding, 100, sk)
+        assert len(doc.document_id) == 16
+        assert doc.classification == 0
+        assert doc.word_count == 100
+    }
+{
+    let ts = now_ns() / 1000000
+    let doc_seed = concat(user_id, content_hash, csprng(16), ts)
+    let document_id = bit_slice(sha3_256(doc_seed), 0, 128)
+    let embedding_hash = sha3_256(embedding_vector)
+    let author_id = polykit_identity::derive_user_id(user_id)
+
+    let doc = DocumentNode {
+        document_id: document_id,
+        content_hash: content_hash,
+        content_encrypted: content_encrypted,
+        classification: classification,
+        source_product: source_product,
+        source_id: source_id,
+        source_path: source_path,
+        author_id: author_id,
+        mime_type: mime_type,
+        title_hash: title_hash,
+        embedding_vector: embedding_vector,
+        embedding_hash: embedding_hash,
+        word_count: word_count,
+        ingested_at: ts,
+        updated_at: ts,
+    }
+
+    let _sig = mldsa_sign(signing_sk, serialize(doc))
+    graph_insert(knowledge_corpus, doc)
+
+    overlay_set(knowledge_corpus, document_id, relevance_score, 1000)
+    overlay_set(knowledge_corpus, document_id, last_accessed_ns, ts * 1000000)
+    overlay_set(knowledge_corpus, document_id, citation_count, 0)
+    overlay_set(knowledge_corpus, document_id, confidence, 900)
+
+    state_machine_transition(ingestion_lifecycle, document_id, "content_received")
+
+    eslm_feed(corpus_insight, serialize(doc), classification)
+
+    polykit_metering::record_usage(user_id, "graph_document_insert", DimensionValues {
+        executions: 1, hashes: 2, bandwidth: 0,
+        storage: len(content_encrypted), observables: 4, proofs: 1, circuits: 0, mpc_sessions: 0,
+    })
+
+    doc
+}
+
+circuit insert_concept(
+    user_id: bytes(16),
+    topic: bytes(256),
+    entity_type: u8,
+    embedding_vector: bytes(1024),
+    source_document_id: bytes(16),
+    derivation_confidence: u16,
+    signing_sk: bytes(4896),
+) -> ConceptNode
+    lex esn/global/org/polylabs/mind
+    status production
+    precision C
+    povc true
+    profile poly_framework_standard
+    observe metrics: [concepts_inserted, concept_insert_latency_ns]
+    invariant "valid_entity_type" { entity_type <= 6 }
+    invariant "confidence_bounded" { derivation_confidence <= 1000 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, now]
+{
+    let ts = now_ns() / 1000000
+    let concept_seed = concat(topic, csprng(16), ts)
+    let concept_id = bit_slice(sha3_256(concept_seed), 0, 128)
+    let embedding_hash = sha3_256(embedding_vector)
+
+    let concept = ConceptNode {
+        concept_id: concept_id,
+        embedding_vector: embedding_vector,
+        embedding_hash: embedding_hash,
+        topic: topic,
+        entity_type: entity_type,
+        extracted_by: "eslm_v1",
+        document_count: 1,
+        first_seen_at: ts,
+        last_updated_at: ts,
+    }
+
+    let _sig = mldsa_sign(signing_sk, serialize(concept))
+    graph_insert(knowledge_corpus, concept)
+
+    let derived_edge = DerivedFromEdge {
+        edge_id: bit_slice(sha3_256(concat(concept_id, source_document_id)), 0, 128),
+        derivation_method: 0,
+        confidence: derivation_confidence,
+        source_span: zero(32),
+        derived_at: ts,
+    }
+    graph_connect(knowledge_corpus, concept_id, source_document_id, derived_edge)
+
+    overlay_set(knowledge_corpus, concept_id, relevance_score, 800)
+    overlay_set(knowledge_corpus, concept_id, confidence, derivation_confidence)
+
+    eslm_feed(corpus_insight, serialize(concept), entity_type)
+
+    concept
+}
+
+circuit insert_relationship(
+    subject_id: bytes(16),
+    object_id: bytes(16),
+    relationship_type: u8,
+    strength: u16,
+    evidence_hash: bytes(32),
+    temporal_start: u64,
+    temporal_end: u64,
+    signing_sk: bytes(4896),
+) -> RelationshipNode
+    lex esn/global/org/polylabs/mind
+    status production
+    precision C
+    povc true
+    profile poly_framework_standard
+    observe metrics: [relationships_inserted]
+    invariant "valid_type" { relationship_type <= 4 }
+    invariant "strength_bounded" { strength <= 1000 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, now]
+{
+    let ts = now_ns() / 1000000
+    let rel_seed = concat(subject_id, object_id, relationship_type, ts)
+    let relationship_id = bit_slice(sha3_256(rel_seed), 0, 128)
+
+    let rel = RelationshipNode {
+        relationship_id: relationship_id,
+        relationship_type: relationship_type,
+        subject_id: subject_id,
+        object_id: object_id,
+        strength: strength,
+        evidence_hash: evidence_hash,
+        temporal_start: temporal_start,
+        temporal_end: temporal_end,
+        created_at: ts,
+    }
+
+    let _sig = mldsa_sign(signing_sk, serialize(rel))
+    graph_insert(knowledge_corpus, rel)
+
+    let ref_edge = ReferencesEdge {
+        edge_id: bit_slice(sha3_256(concat(relationship_id, subject_id)), 0, 128),
+        context: zero(256),
+        reference_type: relationship_type,
+        confidence: strength,
+        created_at: ts,
+    }
+    graph_connect(knowledge_corpus, subject_id, object_id, ref_edge)
+
+    overlay_increment(knowledge_corpus, subject_id, citation_count, 1)
+    overlay_increment(knowledge_corpus, object_id, citation_count, 1)
+
+    rel
+}
+
+// ── Circuits: Queries ───────────────────────────────────────────
+
+circuit get_document(
+    graph_id: bytes(32),
+    document_id: bytes(16),
+) -> option<DocumentNode>
+    lex esn/global/org/polylabs/mind
+    status production
+    precision B
+    observe metrics: [document_lookups]
+{
+    graph_query(knowledge_corpus, document_id)
+}
+
+circuit get_concepts_for_document(
+    graph_id: bytes(32),
+    document_id: bytes(16),
+) -> list<ConceptNode>
+    lex esn/global/org/polylabs/mind
+    status production
+    precision B
+    observe metrics: [concept_lookups]
+{
+    graph_traverse(knowledge_corpus, document_id, DerivedFromEdge)
+}
+
+circuit get_documents_for_concept(
+    graph_id: bytes(32),
+    concept_id: bytes(16),
+) -> list<DocumentNode>
+    lex esn/global/org/polylabs/mind
+    status production
+    precision B
+    observe metrics: [reverse_concept_lookups]
+{
+    graph_traverse_reverse(knowledge_corpus, concept_id, DerivedFromEdge)
+}
+
+circuit get_contradictions(
+    graph_id: bytes(32),
+    document_id: bytes(16),
+) -> list<ContradictEdge>
+    lex esn/global/org/polylabs/mind
+    status production
+    precision B
+    observe metrics: [contradiction_lookups]
+{
+    graph_edges(knowledge_corpus, document_id, ContradictEdge)
+}
+
+circuit get_neighborhood(
+    graph_id: bytes(32),
+    node_id: bytes(16),
+    max_hops: u8,
+    classification_ceiling: u8,
+) -> list<bytes(16)>
+    lex esn/global/org/polylabs/mind
+    status production
+    precision B
+    observe metrics: [neighborhood_queries, nodes_visited]
+    invariant "hops_bounded" { max_hops <= 5 }
+{
+    let visited = set()
+    let frontier = [node_id]
+    for hop in 0..max_hops {
+        let next = []
+        for nid in frontier {
+            let neighbors = graph_neighbors(knowledge_corpus, nid, ReferencesEdge)
+            for n in neighbors {
+                if not visited.contains(n.id) {
+                    let node = graph_query(knowledge_corpus, n.id)
+                    if node.classification <= classification_ceiling {
+                        visited.insert(n.id)
+                        next.push(n.id)
+                    }
+                }
+            }
+        }
+        frontier = next
+    }
+    visited.to_list()
+}
+
+// ── Circuits: Overlay management ────────────────────────────────
+
+circuit update_relevance(
+    document_id: bytes(16),
+    delta: i16,
+) -> u16
+    lex esn/global/org/polylabs/mind
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+    observe metrics: [relevance_updates]
+{
+    let current = overlay_get(knowledge_corpus, document_id, relevance_score)
+    let new_score = clamp(current + delta, 0, 1000)
+    overlay_set(knowledge_corpus, document_id, relevance_score, new_score)
+    overlay_set(knowledge_corpus, document_id, last_accessed_ns, now_ns())
+    new_score
+}
+
+circuit decay_relevance(
+    threshold: u16,
+    decay_factor: u16,
+) -> u32
+    lex esn/global/org/polylabs/mind
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+    observe metrics: [decay_ops, documents_decayed, documents_staled]
+{
+    let ts = now_ns()
+    let day_ns = 86400000000000
+    let all_docs = graph_query_all(knowledge_corpus, DocumentNode)
+    let decayed = 0
+
+    for doc in all_docs {
+        let last_access = overlay_get(knowledge_corpus, doc.document_id, last_accessed_ns)
+        let age_days = (ts - last_access) / day_ns
+
+        if age_days > 0 {
+            let current = overlay_get(knowledge_corpus, doc.document_id, relevance_score)
+            let penalty = min(age_days * decay_factor, current)
+            let new_score = current - penalty
+            overlay_set(knowledge_corpus, doc.document_id, relevance_score, new_score)
+
+            if new_score < threshold {
+                state_machine_transition(ingestion_lifecycle, doc.document_id, "relevance_decayed")
+            }
+            decayed = decayed + 1
+        }
+    }
+    decayed
+}
+
+circuit prune_stale(
+    max_stale_days: u32,
+    signing_sk: bytes(4896),
+) -> u32
+    lex esn/global/org/polylabs/mind
+    status production
+    precision C
+    povc true
+    profile poly_framework_standard
+    observe metrics: [prune_ops, documents_pruned]
+{
+    let ts = now_ns()
+    let day_ns = 86400000000000
+    let pruned = 0
+
+    let all_docs = graph_query_all(knowledge_corpus, DocumentNode)
+    for doc in all_docs {
+        let last_access = overlay_get(knowledge_corpus, doc.document_id, last_accessed_ns)
+        let age_days = (ts - last_access) / day_ns
+
+        if age_days > max_stale_days {
+            let current_state = state_machine_current(ingestion_lifecycle, doc.document_id)
+            if current_state == "STALE" {
+                let _sig = mldsa_sign(signing_sk, concat("prune", doc.document_id, ts))
+                state_machine_transition(ingestion_lifecycle, doc.document_id, "prune_expired")
+                graph_delete(knowledge_corpus, doc.document_id)
+                scatter_delete(concat("doc:", doc.document_id))
+                pruned = pruned + 1
+            }
+        }
+    }
+    pruned
+}
+
+// ── Circuits: Quantum state snapshot ────────────────────────────
+
+circuit snapshot_corpus_state(
+    user_id: bytes(16),
+    signing_sk: bytes(4896),
+) -> string
+    lex esn/global/org/polylabs/mind
+    status production
+    precision C
+    povc true
+    observe metrics: [snapshots_created, snapshot_size_bytes]
+{
+    let docs = graph_query_all(knowledge_corpus, DocumentNode)
+    let concepts = graph_query_all(knowledge_corpus, ConceptNode)
+    let rels = graph_query_all(knowledge_corpus, RelationshipNode)
+
+    let classification_dist = [0; 6]
+    for doc in docs {
+        classification_dist[doc.classification] = classification_dist[doc.classification] + 1
+    }
+
+    let snapshot_payload = serialize({
+        document_count: len(docs),
+        concept_count: len(concepts),
+        relationship_count: len(rels),
+        classification_distribution: classification_dist,
+        timestamp: now_ns() / 1000000,
+    })
+
+    let snapshot_hash = sha3_256(snapshot_payload)
+    let _sig = mldsa_sign(signing_sk, snapshot_payload)
+
+    snapshot_hash
+}
+
+// ── Streams ─────────────────────────────────────────────────────
+
+stream corpus_mutations: event<DocumentNode>
+    retention 7y
+    consumers [governance, audit, streamsight, mind_team]
+
+stream concept_events: event<ConceptNode>
+    retention 365d
+    consumers [streamsight, corpus_insight]
+
+stream insight_events: event<InsightResult>
+    retention 365d
+    consumers [streamsight, eslm, mind_team]

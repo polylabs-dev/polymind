@@ -1,0 +1,230 @@
+/// Poly Mind Ingestion — Document ingestion with classification and embedding
+/// Stratum graph-backed, Cortex AI-governed
+/// govern lex esn/global/org/polylabs/mind
+
+import polykit_identity
+import polykit_metering
+
+// ── Types ───────────────────────────────────────────────────────
+
+type SourceProduct = enum {
+    Manual,
+    Messenger,
+    Mail,
+    Files,
+    Calendar,
+    External,
+}
+
+type Classification = enum {
+    Public,
+    Internal,
+    Sensitive,
+    Restricted,
+    Sovereign,
+    Ephemeral,
+}
+
+type IngestRequest = struct {
+    user_id: bytes(16),
+    content: bytes,
+    content_hash: bytes(32),
+    source: u8,
+    source_id: bytes(16),
+    mime_type: u16,
+    title: string,
+    classification_hint: u8,
+    signing_sk: bytes(4896),
+}
+
+type DocumentMetadata = struct {
+    document_id: bytes(16),
+    content_hash: bytes(32),
+    classification: u8,
+    source: u8,
+    source_id: bytes(16),
+    mime_type: u16,
+    title_hash: bytes(32),
+    embedding_hash: bytes(32),
+    word_count: u32,
+    concept_ids: list<bytes(16)>,
+    ingested_at: u64,
+}
+
+type IngestResult = struct {
+    metadata: DocumentMetadata,
+    embedding: bytes(1024),
+    concepts_extracted: u32,
+    references_linked: u32,
+}
+
+// ── Circuits ────────────────────────────────────────────────────
+
+circuit ingest_document(req: IngestRequest) -> IngestResult
+    lex esn/global/org/polylabs/mind/ingest
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time false
+    observe metrics: [ingest_ops, corpus_size_bytes, ingest_latency_ns]
+    monitor "ingest_rate" { ingest_ops < 100/s }
+    invariant "content_nonempty" { len(req.content) > 0 }
+    invariant "valid_classification" { req.classification_hint <= 5 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, now, eslm_embed, eslm_classify]
+    test golden "ingest_text_document" {
+        let sk = bytes(4896, 0xBB)
+        let uid = bytes(16, 0x01)
+        let content = bytes(256, 0xCC)
+        let req = IngestRequest {
+            user_id: uid, content: content, content_hash: sha3_256(content),
+            source: 0, source_id: bytes(16, 0x00), mime_type: 1,
+            title: "Test Note", classification_hint: 0, signing_sk: sk,
+        }
+        let result = ingest_document(req)
+        assert len(result.metadata.document_id) == 16
+        assert result.metadata.classification <= 5
+    }
+    kat_vector "sha3_256_content_hash" {
+        input: bytes(256, 0xCC)
+        function: sha3_256
+        expected: sha3_256(bytes(256, 0xCC))
+    }
+    kat_vector "sha3_256_title_hash" {
+        input: "Test Note"
+        function: sha3_256
+        expected: sha3_256("Test Note")
+    }
+{
+    let ts = now_ns() / 1000000
+    let classification = classify_sensitivity(req.content, req.source, req.classification_hint)
+    let embedding = generate_embedding(req.content)
+    let concepts = extract_concepts(req.content, embedding)
+
+    let doc_seed = concat(req.user_id, req.content_hash, csprng(16), ts)
+    let document_id = bit_slice(sha3_256(doc_seed), 0, 128)
+    let title_hash = sha3_256(req.title)
+    let embedding_hash = sha3_256(embedding)
+    let word_count = count_words(req.content)
+
+    let metadata = DocumentMetadata {
+        document_id: document_id,
+        content_hash: req.content_hash,
+        classification: classification,
+        source: req.source,
+        source_id: req.source_id,
+        mime_type: req.mime_type,
+        title_hash: title_hash,
+        embedding_hash: embedding_hash,
+        word_count: word_count,
+        concept_ids: map(concepts, |c| c.concept_id),
+        ingested_at: ts,
+    }
+
+    let _sig = mldsa_sign(req.signing_sk, serialize(metadata))
+    let ref_count = link_references(document_id, concepts, req.signing_sk)
+
+    graph_insert(knowledge_corpus, DocumentNode {
+        document_id: document_id, content_hash: req.content_hash,
+        classification: classification, source_product: req.source,
+        source_id: req.source_id, mime_type: req.mime_type,
+        title_hash: title_hash, embedding_hash: embedding_hash,
+        word_count: word_count, ingested_at: ts, updated_at: ts,
+    })
+
+    overlay_set(knowledge_corpus, document_id, relevance_score, 1000)
+    overlay_set(knowledge_corpus, document_id, last_accessed_ns, ts * 1000000)
+    overlay_set(knowledge_corpus, document_id, confidence, 900)
+
+    eslm_feed(corpus_insight, serialize(metadata), classification)
+
+    polykit_metering::record_usage(req.user_id, "mind_ingest", DimensionValues {
+        executions: 1, hashes: 2, bandwidth: 0,
+        storage: len(req.content), observables: 3, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    IngestResult {
+        metadata: metadata,
+        embedding: embedding,
+        concepts_extracted: len(concepts),
+        references_linked: ref_count,
+    }
+}
+
+circuit classify_sensitivity(content: bytes, source: u8, hint: u8) -> u8
+    lex esn/global/org/polylabs/mind/ingest
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+    observe metrics: [classification_ops, classification_overrides]
+    wasm_abi [eslm_classify]
+{
+    let eslm_class = eslm_classify(content, "sensitivity")
+    if hint > eslm_class { hint } else { eslm_class }
+}
+
+circuit generate_embedding(content: bytes) -> bytes(1024)
+    lex esn/global/org/polylabs/mind/ingest
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+    observe metrics: [embedding_ops, embedding_latency_ns]
+    wasm_abi [eslm_embed]
+{
+    eslm_embed(content, 1024)
+}
+
+circuit extract_concepts(content: bytes, embedding: bytes(1024)) -> list<ConceptNode>
+    lex esn/global/org/polylabs/mind/ingest
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+    observe metrics: [concept_extractions, concepts_per_document]
+    wasm_abi [eslm_extract, eslite_insert, now]
+{
+    let ts = now_ns() / 1000000
+    let raw_concepts = eslm_extract(content, "concepts")
+    parallel for concept in raw_concepts {
+        let cid = bit_slice(sha3_256(concat(concept.topic, csprng(8))), 0, 128)
+        let cembed = eslm_embed(concept.topic, 1024)
+        let node = ConceptNode {
+            concept_id: cid, embedding_hash: sha3_256(cembed),
+            topic: concept.topic, entity_type: concept.entity_type,
+            first_seen_at: ts, last_updated_at: ts,
+        }
+        graph_upsert(knowledge_corpus, node)
+        node
+    }
+}
+
+circuit link_references(
+    document_id: bytes(16),
+    concepts: list<ConceptNode>,
+    signing_sk: bytes(4896),
+) -> u32
+    lex esn/global/org/polylabs/mind/ingest
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+    observe metrics: [references_linked]
+    wasm_abi [now]
+{
+    let ts = now_ns() / 1000000
+    let count = 0
+    for concept in concepts {
+        let edge = DerivedFromEdge {
+            derivation_method: 0,
+            confidence: 800,
+            derived_at: ts,
+        }
+        let _sig = mldsa_sign(signing_sk, serialize(edge))
+        graph_connect(knowledge_corpus, document_id, concept.concept_id, edge)
+        count = count + 1
+    }
+    count
+}

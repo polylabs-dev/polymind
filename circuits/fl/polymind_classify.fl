@@ -1,0 +1,203 @@
+/// Poly Mind Classification — Sensitivity propagation through knowledge graph
+/// Sensitivity flows along edges: if source is RESTRICTED, derived concepts inherit
+/// govern lex esn/global/org/polylabs/mind
+
+import polykit_identity
+import polykit_metering
+
+// ── Types ───────────────────────────────────────────────────────
+
+type SensitivityLevel = enum {
+    Public,
+    Internal,
+    Sensitive,
+    Restricted,
+    Sovereign,
+    Ephemeral,
+}
+
+type PropagationResult = struct {
+    documents_updated: u32,
+    concepts_updated: u32,
+    edges_traversed: u32,
+    max_depth_reached: u8,
+    boundary_violations: u32,
+}
+
+type ClassificationOverride = struct {
+    target_id: bytes(16),
+    previous_classification: u8,
+    new_classification: u8,
+    reason: string,
+    overridden_by: bytes(16),
+    overridden_at: u64,
+    signature: bytes(4627),
+}
+
+type ClassificationAuditEntry = struct {
+    entry_id: bytes(16),
+    target_id: bytes(16),
+    action: string,
+    old_value: u8,
+    new_value: u8,
+    propagation_depth: u8,
+    timestamp: u64,
+}
+
+// ── Circuits ────────────────────────────────────────────────────
+
+circuit propagate_sensitivity(
+    source_id: bytes(16),
+    new_classification: u8,
+    max_depth: u8,
+    signing_sk: bytes(4896),
+) -> PropagationResult
+    lex esn/global/org/polylabs/mind/classify
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time false
+    observe metrics: [propagation_ops, documents_reclassified, propagation_depth_max]
+    monitor "propagation_scope" { documents_reclassified < 1000 }
+    invariant "valid_classification" { new_classification <= 5 }
+    invariant "max_depth_bounded" { max_depth <= 10 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, eslite_query, now]
+    test golden "propagate_restricted" {
+        let sk = bytes(4896, 0xBB)
+        let src = bytes(16, 0x01)
+        let result = propagate_sensitivity(src, 3, 3, sk)
+        assert result.max_depth_reached <= 3
+    }
+{
+    let ts = now_ns() / 1000000
+    let source_node = graph_query(knowledge_corpus, source_id)
+
+    let docs_updated = 0
+    let concepts_updated = 0
+    let edges_traversed = 0
+    let violations = 0
+
+    let frontier = [source_id]
+    for depth in 0..max_depth {
+        let next_frontier = []
+        for node_id in frontier {
+            let derived = graph_neighbors(knowledge_corpus, node_id, DerivedFromEdge)
+            let refs = graph_neighbors(knowledge_corpus, node_id, ReferencesEdge)
+
+            for neighbor in concat_lists(derived, refs) {
+                edges_traversed = edges_traversed + 1
+                let neighbor_node = graph_query(knowledge_corpus, neighbor.id)
+                let current_class = neighbor_node.classification
+
+                if current_class < new_classification {
+                    let boundary_ok = check_sensitivity_boundary(current_class, new_classification)
+                    if boundary_ok {
+                        graph_update_field(knowledge_corpus, neighbor.id, "classification", new_classification)
+                        graph_update_field(knowledge_corpus, neighbor.id, "updated_at", ts)
+                        let _sig = mldsa_sign(signing_sk, concat(neighbor.id, new_classification, ts))
+
+                        if neighbor_node.entity_type != null {
+                            concepts_updated = concepts_updated + 1
+                        } else {
+                            docs_updated = docs_updated + 1
+                        }
+
+                        next_frontier.push(neighbor.id)
+
+                        audit_classification(ClassificationAuditEntry {
+                            entry_id: bit_slice(sha3_256(concat(neighbor.id, ts, depth)), 0, 128),
+                            target_id: neighbor.id,
+                            action: "propagate",
+                            old_value: current_class,
+                            new_value: new_classification,
+                            propagation_depth: depth,
+                            timestamp: ts,
+                        })
+                    } else {
+                        violations = violations + 1
+                    }
+                }
+            }
+        }
+        frontier = next_frontier
+        if len(frontier) == 0 { break }
+    }
+
+    PropagationResult {
+        documents_updated: docs_updated,
+        concepts_updated: concepts_updated,
+        edges_traversed: edges_traversed,
+        max_depth_reached: min(max_depth, depth),
+        boundary_violations: violations,
+    }
+}
+
+circuit reclassify_document(
+    document_id: bytes(16),
+    new_classification: u8,
+    reason: string,
+    user_id: bytes(16),
+    signing_sk: bytes(4896),
+) -> ClassificationOverride
+    lex esn/global/org/polylabs/mind/classify
+    status production
+    precision C
+    povc true
+    profile poly_framework_sensitive
+    constant_time false
+    observe metrics: [reclassification_ops, classification_escalations, classification_downgrades]
+    invariant "valid_classification" { new_classification <= 5 }
+    invariant "no_downgrade" { new_classification >= current_classification }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, now]
+{
+    let ts = now_ns() / 1000000
+    let node = graph_query(knowledge_corpus, document_id)
+    let prev = node.classification
+
+    let sig = mldsa_sign(signing_sk, concat(document_id, prev, new_classification, ts))
+    graph_update_field(knowledge_corpus, document_id, "classification", new_classification)
+    graph_update_field(knowledge_corpus, document_id, "updated_at", ts)
+
+    propagate_sensitivity(document_id, new_classification, 5, signing_sk)
+
+    ClassificationOverride {
+        target_id: document_id,
+        previous_classification: prev,
+        new_classification: new_classification,
+        reason: reason,
+        overridden_by: user_id,
+        overridden_at: ts,
+        signature: sig,
+    }
+}
+
+circuit check_sensitivity_boundary(current: u8, proposed: u8) -> bool
+    lex esn/global/org/polylabs/mind/classify
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+    observe metrics: [boundary_checks, boundary_rejections]
+{
+    if proposed < current { false }
+    else if current == 5 { false }
+    else if proposed == 4 and current < 3 { false }
+    else { true }
+}
+
+circuit audit_classification(entry: ClassificationAuditEntry) -> bool
+    lex esn/global/org/polylabs/mind/classify
+    status production
+    precision B
+    povc true
+    profile poly_framework_standard
+    observe metrics: [audit_entries_written]
+    wasm_abi [eslite_insert]
+{
+    eslite_insert("classification_audit", serialize(entry))
+    eslm_feed(corpus_insight, serialize(entry), entry.new_value)
+    true
+}

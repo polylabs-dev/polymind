@@ -1,0 +1,47 @@
+[test_suite]
+name = "polymind-core-vectors"
+version = "0.1.0"
+circuit_id = "esn.polylabs.polymind"
+vector_count = 7
+
+[[test_suite.vectors]]
+file = "polymind.esz"
+circuit = "write_corpus"
+category = "happy_path"
+name = "happy path — write corpus entry and retrieve by semantic query"
+
+[[test_suite.vectors]]
+file = "polymind.esz"
+circuit = "run_inference"
+category = "happy_path"
+name = "happy path — run inference on local ESLM model"
+
+[[test_suite.vectors]]
+file = "polymind.esz"
+circuit = "retrieve_memory"
+category = "edge_case"
+name = "edge case — memory retrieval with zero matching results"
+
+[[test_suite.vectors]]
+file = "polymind.esz"
+circuit = "snapshot_legacy"
+category = "crypto"
+name = "crypto — legacy snapshot with attested merkle chain"
+
+[[test_suite.vectors]]
+file = "polymind.esz"
+circuit = "classify_content"
+category = "crypto"
+name = "crypto — classification with encrypted labels"
+
+[[test_suite.vectors]]
+file = "polymind.esz"
+circuit = "write_corpus"
+category = "telemetry_isolation"
+name = "blind telemetry isolation — polymind metrics invisible to sibling products"
+
+[[test_suite.vectors]]
+file = "polymind.esz"
+circuit = "generate_insight"
+category = "error_handling"
+name = "error handling — insight generation on corrupted corpus"
