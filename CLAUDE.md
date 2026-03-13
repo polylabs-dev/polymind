@@ -1,6 +1,6 @@
 # Poly Mind
 
-Personal ESLM corpus and digital legacy system built on eStream v0.8.3 and PolyKit v0.3.0. Status: Concept.
+Personal ESLM corpus and digital legacy system built on eStream v0.11.0 and PolyKit v0.3.0. Status: Active.
 
 ## Overview
 
@@ -33,6 +33,11 @@ See `docs/ARCHITECTURE.md` for full specification including graph/DAG constructs
 | Classify Circuit | `circuits/fl/polymind_classify.fl` | Classification propagation, sensitivity analysis |
 | Legacy Circuit | `circuits/fl/polymind_legacy.fl` | Guardian designation, trigger verification, tier unlock |
 | Insight Circuit | `circuits/fl/polymind_insight.fl` | Proactive synthesis, contradiction detection |
+| Metering Circuit | `circuits/fl/polymind_metering.fl` | Per-product 8D metering (isolated) |
+| Platform Health | `circuits/fl/polymind_platform_health.fl` | Blind relay telemetry for corpus operations |
+| ESLM Circuit | `circuits/fl/polymind_eslm.fl` | ESLM model management, checkpoints, fine-tuning, inference |
+| Guardian Transfer | `circuits/fl/polymind_guardian.fl` | K-of-N graduated digital legacy transfer |
+| RBAC Circuit | `circuits/fl/polymind_rbac.fl` | Role-based access control graph for enterprise corpora |
 | ESLM Engine | `crates/poly-mind-core/` | On-device inference with persistent SSM state |
 | Ingestion Pipeline | `crates/ingestion/` | Ingest from Poly products + external sources |
 | Knowledge Graph Engine | `crates/knowledge-graph/` | Entity/relationship/temporal graph operations |
@@ -53,7 +58,7 @@ All sync uses the eStream Wire Protocol (QUIC/UDP). No REST/HTTP endpoints. All 
 
 ## Platform
 
-- eStream v0.8.3
+- eStream v0.11.0
 - PolyKit v0.3.0
 - ESLM (eStream Small Language Model) with persistent SSM
 - ML-KEM-1024, ML-DSA-87, SHA3-256

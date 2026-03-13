@@ -1,0 +1,498 @@
+// Poly Mind Guardian Transfer — K-of-N graduated digital legacy transfer (v0.11.0)
+//
+// Lex Architecture:
+//   esn/global/org/polylabs/mind/guardian
+//   Graduated transfer schedule:
+//     PUBLIC    — Day 0   (immediate upon K-of-N threshold)
+//     SENSITIVE — Day 30  (one month cooling period)
+//     RESTRICTED — Day 90  (three month cooling period)
+//     SOVEREIGN — auto-purges (never transferred)
+//
+// State machine: guardian_transfer_fsm
+//   IDLE → TRIGGERED → THRESHOLD_MET → TRANSFERRING → [COMPLETE | PURGED]
+//   Alive proof resets TRIGGERED → IDLE
+
+import polykit_identity
+import polykit_metering
+import polykit_governance
+
+// ── Enums ───────────────────────────────────────────────────────
+
+type TransferTierLevel = enum {
+    Public,
+    Sensitive,
+    Restricted,
+    Sovereign,
+}
+
+type TransferStatus = enum {
+    Pending,
+    InProgress,
+    Complete,
+    Cancelled,
+    Purged,
+}
+
+type GuardianTransferPhase = enum {
+    Idle,
+    Triggered,
+    ThresholdMet,
+    Transferring,
+    Complete,
+    Purged,
+}
+
+// ── Data: Stored guardian transfer entities ──────────────────────
+
+data GuardianTransfer : mind v1 {
+    transfer_id: bytes(16),
+    user_id: bytes(16),
+    trigger_id: bytes(16),
+    threshold_k: u8,
+    threshold_n: u8,
+    signatures_collected: u8,
+    phase: u8,
+    public_transferred: bool,
+    sensitive_transferred: bool,
+    restricted_transferred: bool,
+    sovereign_purged: bool,
+    trigger_timestamp: u64,
+    public_unlock_at: u64,
+    sensitive_unlock_at: u64,
+    restricted_unlock_at: u64,
+    initiated_at: u64,
+    completed_at: u64,
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/guardian
+    cortex {
+        obfuscate [user_id, trigger_id]
+        infer on_write
+        on_anomaly alert "mind-legacy"
+        on_suggestion store "cortex/mind/guardian_audit"
+    }
+
+data TierTransferBatch : mind v1 {
+    batch_id: bytes(16),
+    transfer_id: bytes(16),
+    tier: u8,
+    document_ids: list<bytes(16)>,
+    document_count: u32,
+    transfer_hash: bytes(32),
+    guardian_signatures: list<bytes(4627)>,
+    executed_at: u64,
+    signature: bytes(4627),
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/guardian
+    cortex {
+        redact [guardian_signatures]
+        infer on_write
+        on_anomaly alert "mind-legacy"
+    }
+
+data SovereignPurgeBatch : mind v1 {
+    batch_id: bytes(16),
+    transfer_id: bytes(16),
+    document_ids: list<bytes(16)>,
+    document_count: u32,
+    purge_proof_hash: bytes(32),
+    executed_at: u64,
+    signature: bytes(4627),
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/guardian
+    cortex {
+        infer on_write
+        on_anomaly alert "mind-legacy"
+    }
+
+// ── State Machine: Guardian Transfer FSM ────────────────────────
+
+state_machine guardian_transfer_fsm {
+    initial IDLE
+    persistence wal
+    terminal [COMPLETE, PURGED]
+    li_anomaly_detection true
+
+    IDLE -> TRIGGERED when trigger_submitted guard guardian_valid
+    TRIGGERED -> IDLE when alive_proof_submitted guard spark_biometric_verified
+    TRIGGERED -> THRESHOLD_MET when k_of_n_reached guard signatures_valid
+    THRESHOLD_MET -> TRANSFERRING when transfer_initiated guard schedule_computed
+    TRANSFERRING -> TRANSFERRING when tier_transferred guard unlock_day_reached
+    TRANSFERRING -> TRANSFERRING when sovereign_purged guard auto_purge_policy
+    TRANSFERRING -> COMPLETE when all_tiers_processed guard restricted_transferred
+    TRANSFERRING -> PURGED when only_sovereign_remains guard sovereign_auto_purged
+}
+
+// ── Streams ─────────────────────────────────────────────────────
+
+stream guardian_transfer_events: event<GuardianTransfer>
+    retention 7y
+    consumers [governance, audit, streamsight, mind_legacy_team]
+
+stream tier_transfer_events: event<TierTransferBatch>
+    retention 7y
+    consumers [governance, audit, streamsight]
+
+stream sovereign_purge_events: event<SovereignPurgeBatch>
+    retention 7y
+    consumers [governance, audit, streamsight]
+
+// ── Circuits: Transfer Lifecycle ────────────────────────────────
+
+circuit initiate_guardian_transfer(
+    user_id: bytes(16),
+    trigger_id: bytes(16),
+    threshold_k: u8,
+    threshold_n: u8,
+    signatures: list<bytes(4627)>,
+    signing_sk: bytes(4896),
+) -> GuardianTransfer
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/guardian
+    precision C
+    povc true
+    constant_time true
+    observe metrics: [transfers_initiated, transfer_initiate_latency_ns]
+    invariant "k_leq_n" { threshold_k <= threshold_n }
+    invariant "min_threshold" { threshold_n >= 3 }
+    invariant "sufficient_sigs" { len(signatures) >= threshold_k }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, now, csprng]
+    test golden "initiate_3_of_5_transfer" {
+        let sk = bytes(4896, 0xBB)
+        let uid = bytes(16, 0x01)
+        let tid = bytes(16, 0x02)
+        let sigs = [bytes(4627, 0xAA), bytes(4627, 0xBB), bytes(4627, 0xCC)]
+        let transfer = initiate_guardian_transfer(uid, tid, 3, 5, sigs, sk)
+        assert len(transfer.transfer_id) == 16
+        assert transfer.phase == 3
+        assert transfer.public_unlock_at == transfer.trigger_timestamp
+    }
+{
+    let ts = now_ns() / 1000000
+    let transfer_seed = concat(user_id, trigger_id, csprng(16), ts)
+    let transfer_id = bit_slice(sha3_256(transfer_seed), 0, 128)
+
+    let day_ms = 86400000
+
+    let transfer = GuardianTransfer {
+        transfer_id: transfer_id,
+        user_id: user_id,
+        trigger_id: trigger_id,
+        threshold_k: threshold_k,
+        threshold_n: threshold_n,
+        signatures_collected: len(signatures),
+        phase: 3,
+        public_transferred: false,
+        sensitive_transferred: false,
+        restricted_transferred: false,
+        sovereign_purged: false,
+        trigger_timestamp: ts,
+        public_unlock_at: ts,
+        sensitive_unlock_at: ts + (30 * day_ms),
+        restricted_unlock_at: ts + (90 * day_ms),
+        initiated_at: ts,
+        completed_at: 0,
+    }
+
+    let _sig = mldsa_sign(signing_sk, serialize(transfer))
+    eslite_insert("guardian_transfers", transfer_id, transfer)
+
+    state_machine_transition(guardian_transfer_fsm, transfer_id, "trigger_submitted")
+    state_machine_transition(guardian_transfer_fsm, transfer_id, "k_of_n_reached")
+    state_machine_transition(guardian_transfer_fsm, transfer_id, "transfer_initiated")
+
+    emit(guardian_transfer_events, transfer)
+
+    polykit_metering::record_usage(user_id, "guardian_transfer_init", DimensionValues {
+        executions: 1, hashes: 1, bandwidth: 0,
+        storage: 256, observables: 1, proofs: 1, circuits: 0, mpc_sessions: 0,
+    })
+
+    transfer
+}
+
+circuit transfer_public_tier(
+    transfer_id: bytes(16),
+    signing_sk: bytes(4896),
+) -> TierTransferBatch
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/guardian
+    precision C
+    povc true
+    constant_time true
+    observe metrics: [public_transfers, public_documents_transferred]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslite_insert, now, csprng]
+{
+    let ts = now_ns() / 1000000
+    let transfer = eslite_query("guardian_transfers", transfer_id)
+
+    if ts < transfer.public_unlock_at { panic("public tier not yet unlocked") }
+    if transfer.public_transferred { panic("public tier already transferred") }
+
+    let public_docs = graph_query_field(knowledge_corpus, DocumentNode, "classification", 0)
+    let internal_docs = graph_query_field(knowledge_corpus, DocumentNode, "classification", 1)
+    let all_docs = concat_lists(public_docs, internal_docs)
+    let doc_ids = map(all_docs, |d| d.document_id)
+    let transfer_hash = sha3_256(serialize(doc_ids))
+
+    let batch_seed = concat(transfer_id, "public", csprng(16), ts)
+    let batch_id = bit_slice(sha3_256(batch_seed), 0, 128)
+    let sig = mldsa_sign(signing_sk, concat(batch_id, transfer_hash, ts))
+
+    let batch = TierTransferBatch {
+        batch_id: batch_id,
+        transfer_id: transfer_id,
+        tier: 0,
+        document_ids: doc_ids,
+        document_count: len(doc_ids),
+        transfer_hash: transfer_hash,
+        guardian_signatures: [],
+        executed_at: ts,
+        signature: sig,
+    }
+
+    transfer.public_transferred = true
+    transfer.phase = 3
+    eslite_insert("guardian_transfers", transfer_id, transfer)
+    eslite_insert("tier_batches", batch_id, batch)
+
+    state_machine_transition(guardian_transfer_fsm, transfer_id, "tier_transferred")
+    emit(tier_transfer_events, batch)
+
+    batch
+}
+
+circuit transfer_sensitive_tier(
+    transfer_id: bytes(16),
+    signing_sk: bytes(4896),
+) -> TierTransferBatch
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/guardian
+    precision C
+    povc true
+    constant_time true
+    observe metrics: [sensitive_transfers, sensitive_documents_transferred]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslite_insert, now, csprng]
+{
+    let ts = now_ns() / 1000000
+    let transfer = eslite_query("guardian_transfers", transfer_id)
+
+    if ts < transfer.sensitive_unlock_at { panic("sensitive tier not yet unlocked (day 30)") }
+    if not transfer.public_transferred { panic("public tier must be transferred first") }
+    if transfer.sensitive_transferred { panic("sensitive tier already transferred") }
+
+    let docs = graph_query_field(knowledge_corpus, DocumentNode, "classification", 2)
+    let doc_ids = map(docs, |d| d.document_id)
+    let transfer_hash = sha3_256(serialize(doc_ids))
+
+    let batch_seed = concat(transfer_id, "sensitive", csprng(16), ts)
+    let batch_id = bit_slice(sha3_256(batch_seed), 0, 128)
+    let sig = mldsa_sign(signing_sk, concat(batch_id, transfer_hash, ts))
+
+    let batch = TierTransferBatch {
+        batch_id: batch_id,
+        transfer_id: transfer_id,
+        tier: 1,
+        document_ids: doc_ids,
+        document_count: len(doc_ids),
+        transfer_hash: transfer_hash,
+        guardian_signatures: [],
+        executed_at: ts,
+        signature: sig,
+    }
+
+    transfer.sensitive_transferred = true
+    eslite_insert("guardian_transfers", transfer_id, transfer)
+    eslite_insert("tier_batches", batch_id, batch)
+
+    state_machine_transition(guardian_transfer_fsm, transfer_id, "tier_transferred")
+    emit(tier_transfer_events, batch)
+
+    batch
+}
+
+circuit transfer_restricted_tier(
+    transfer_id: bytes(16),
+    signing_sk: bytes(4896),
+) -> TierTransferBatch
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/guardian
+    precision C
+    povc true
+    constant_time true
+    observe metrics: [restricted_transfers, restricted_documents_transferred]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslite_insert, now, csprng]
+{
+    let ts = now_ns() / 1000000
+    let transfer = eslite_query("guardian_transfers", transfer_id)
+
+    if ts < transfer.restricted_unlock_at { panic("restricted tier not yet unlocked (day 90)") }
+    if not transfer.sensitive_transferred { panic("sensitive tier must be transferred first") }
+    if transfer.restricted_transferred { panic("restricted tier already transferred") }
+
+    let docs = graph_query_field(knowledge_corpus, DocumentNode, "classification", 3)
+    let doc_ids = map(docs, |d| d.document_id)
+    let transfer_hash = sha3_256(serialize(doc_ids))
+
+    let batch_seed = concat(transfer_id, "restricted", csprng(16), ts)
+    let batch_id = bit_slice(sha3_256(batch_seed), 0, 128)
+    let sig = mldsa_sign(signing_sk, concat(batch_id, transfer_hash, ts))
+
+    let batch = TierTransferBatch {
+        batch_id: batch_id,
+        transfer_id: transfer_id,
+        tier: 2,
+        document_ids: doc_ids,
+        document_count: len(doc_ids),
+        transfer_hash: transfer_hash,
+        guardian_signatures: [],
+        executed_at: ts,
+        signature: sig,
+    }
+
+    transfer.restricted_transferred = true
+    eslite_insert("guardian_transfers", transfer_id, transfer)
+    eslite_insert("tier_batches", batch_id, batch)
+
+    state_machine_transition(guardian_transfer_fsm, transfer_id, "tier_transferred")
+    emit(tier_transfer_events, batch)
+
+    batch
+}
+
+circuit purge_sovereign(
+    transfer_id: bytes(16),
+    signing_sk: bytes(4896),
+) -> SovereignPurgeBatch
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/guardian
+    precision C
+    povc true
+    constant_time true
+    observe metrics: [sovereign_purges, sovereign_documents_purged]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslite_insert, now, csprng]
+{
+    let ts = now_ns() / 1000000
+    let transfer = eslite_query("guardian_transfers", transfer_id)
+
+    let sovereign_docs = graph_query_field(knowledge_corpus, DocumentNode, "classification", 4)
+    let ephemeral_docs = graph_query_field(knowledge_corpus, DocumentNode, "classification", 5)
+    let all_docs = concat_lists(sovereign_docs, ephemeral_docs)
+    let doc_ids = map(all_docs, |d| d.document_id)
+
+    for doc_id in doc_ids {
+        scatter_delete(concat("doc:", doc_id))
+        graph_delete(knowledge_corpus, doc_id)
+    }
+
+    let purge_proof = sha3_256(serialize(doc_ids))
+    let batch_seed = concat(transfer_id, "sovereign_purge", csprng(16), ts)
+    let batch_id = bit_slice(sha3_256(batch_seed), 0, 128)
+    let sig = mldsa_sign(signing_sk, concat(batch_id, purge_proof, ts))
+
+    let batch = SovereignPurgeBatch {
+        batch_id: batch_id,
+        transfer_id: transfer_id,
+        document_ids: doc_ids,
+        document_count: len(doc_ids),
+        purge_proof_hash: purge_proof,
+        executed_at: ts,
+        signature: sig,
+    }
+
+    transfer.sovereign_purged = true
+    transfer.completed_at = ts
+    eslite_insert("guardian_transfers", transfer_id, transfer)
+    eslite_insert("purge_batches", batch_id, batch)
+
+    if transfer.restricted_transferred {
+        state_machine_transition(guardian_transfer_fsm, transfer_id, "sovereign_purged")
+        state_machine_transition(guardian_transfer_fsm, transfer_id, "all_tiers_processed")
+    } else {
+        state_machine_transition(guardian_transfer_fsm, transfer_id, "sovereign_purged")
+    }
+
+    emit(sovereign_purge_events, batch)
+
+    polykit_metering::record_usage(transfer.user_id, "guardian_sovereign_purge", DimensionValues {
+        executions: 1, hashes: 1, bandwidth: 0,
+        storage: 0, observables: 1, proofs: 1, circuits: 0, mpc_sessions: 0,
+    })
+
+    batch
+}
+
+// ── Circuits: Queries ───────────────────────────────────────────
+
+circuit get_transfer_status(
+    transfer_id: bytes(16),
+) -> GuardianTransfer
+    profile poly_framework_standard
+    lex esn/global/org/polylabs/mind/guardian
+    precision B
+    observe metrics: [transfer_status_queries]
+    wasm_abi [eslite_query]
+{
+    eslite_query("guardian_transfers", transfer_id)
+}
+
+circuit get_tier_batches(
+    transfer_id: bytes(16),
+) -> list<TierTransferBatch>
+    profile poly_framework_standard
+    lex esn/global/org/polylabs/mind/guardian
+    precision B
+    observe metrics: [tier_batch_queries]
+    wasm_abi [eslite_scan]
+{
+    eslite_scan("tier_batches", concat("transfer:", transfer_id))
+}
+
+circuit compute_next_unlock(
+    transfer_id: bytes(16),
+) -> u64
+    profile poly_framework_standard
+    lex esn/global/org/polylabs/mind/guardian
+    precision B
+    wasm_abi [eslite_query]
+{
+    let transfer = eslite_query("guardian_transfers", transfer_id)
+    if not transfer.public_transferred { transfer.public_unlock_at }
+    else if not transfer.sensitive_transferred { transfer.sensitive_unlock_at }
+    else if not transfer.restricted_transferred { transfer.restricted_unlock_at }
+    else { 0 }
+}
+
+// ── Test / KAT / Fuzz annotations ──────────────────────────────
+
+test golden "graduated_schedule_days" {
+    let sk = bytes(4896, 0xBB)
+    let uid = bytes(16, 0x01)
+    let tid = bytes(16, 0x02)
+    let sigs = [bytes(4627, 0xAA), bytes(4627, 0xBB), bytes(4627, 0xCC)]
+    let transfer = initiate_guardian_transfer(uid, tid, 3, 5, sigs, sk)
+    let day_ms = 86400000
+    assert transfer.sensitive_unlock_at == transfer.trigger_timestamp + (30 * day_ms)
+    assert transfer.restricted_unlock_at == transfer.trigger_timestamp + (90 * day_ms)
+}
+
+fuzz_target "guardian_transfer_fuzz" {
+    inputs {
+        user_id: bytes(16)
+        trigger_id: bytes(16)
+        threshold_k: u8
+        threshold_n: u8
+        signing_sk: bytes(4896)
+    }
+    assert {
+        no_panic
+        constant_time true
+    }
+}

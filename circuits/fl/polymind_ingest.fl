@@ -1,6 +1,9 @@
-/// Poly Mind Ingestion — Document ingestion with classification and embedding
-/// Stratum graph-backed, Cortex AI-governed
-/// govern lex esn/global/org/polylabs/mind
+// Poly Mind Ingestion — Document ingestion with classification and embedding (v0.11.0)
+//
+// Lex Architecture:
+//   esn/global/org/polylabs/mind/ingest
+//   Stratum graph-backed, Cortex AI-governed
+//   Pipeline: receive → classify → embed → extract concepts → link → store
 
 import polykit_identity
 import polykit_metering
@@ -37,7 +40,9 @@ type IngestRequest = struct {
     signing_sk: bytes(4896),
 }
 
-type DocumentMetadata = struct {
+// ── Data: Stored ingestion results ──────────────────────────────
+
+data DocumentMetadata : mind v1 {
     document_id: bytes(16),
     content_hash: bytes(32),
     classification: u8,
@@ -50,6 +55,13 @@ type DocumentMetadata = struct {
     concept_ids: list<bytes(16)>,
     ingested_at: u64,
 }
+    store kv
+    govern lex esn/global/org/polylabs/mind/ingest
+    cortex {
+        obfuscate [source_id]
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
 
 type IngestResult = struct {
     metadata: DocumentMetadata,
@@ -61,11 +73,10 @@ type IngestResult = struct {
 // ── Circuits ────────────────────────────────────────────────────
 
 circuit ingest_document(req: IngestRequest) -> IngestResult
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/ingest
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time false
     observe metrics: [ingest_ops, corpus_size_bytes, ingest_latency_ns]
     monitor "ingest_rate" { ingest_ops < 100/s }
@@ -153,11 +164,10 @@ circuit ingest_document(req: IngestRequest) -> IngestResult
 }
 
 circuit classify_sensitivity(content: bytes, source: u8, hint: u8) -> u8
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/ingest
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [classification_ops, classification_overrides]
     wasm_abi [eslm_classify]
 {
@@ -166,11 +176,10 @@ circuit classify_sensitivity(content: bytes, source: u8, hint: u8) -> u8
 }
 
 circuit generate_embedding(content: bytes) -> bytes(1024)
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/ingest
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [embedding_ops, embedding_latency_ns]
     wasm_abi [eslm_embed]
 {
@@ -178,11 +187,10 @@ circuit generate_embedding(content: bytes) -> bytes(1024)
 }
 
 circuit extract_concepts(content: bytes, embedding: bytes(1024)) -> list<ConceptNode>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/ingest
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [concept_extractions, concepts_per_document]
     wasm_abi [eslm_extract, eslite_insert, now]
 {
@@ -206,11 +214,10 @@ circuit link_references(
     concepts: list<ConceptNode>,
     signing_sk: bytes(4896),
 ) -> u32
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/ingest
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [references_linked]
     wasm_abi [now]
 {

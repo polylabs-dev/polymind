@@ -1,0 +1,6 @@
+.es/
+target/
+*.wasm
+*.esz
+*.escd
+.DS_Store

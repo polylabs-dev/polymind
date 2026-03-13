@@ -1,6 +1,9 @@
-/// Poly Mind Classification — Sensitivity propagation through knowledge graph
-/// Sensitivity flows along edges: if source is RESTRICTED, derived concepts inherit
-/// govern lex esn/global/org/polylabs/mind
+// Poly Mind Classification — Sensitivity propagation through knowledge graph (v0.11.0)
+//
+// Lex Architecture:
+//   esn/global/org/polylabs/mind/classify
+//   Sensitivity flows along edges: if source is RESTRICTED, derived concepts inherit.
+//   Boundary rules prevent arbitrary downgrades.
 
 import polykit_identity
 import polykit_metering
@@ -34,7 +37,9 @@ type ClassificationOverride = struct {
     signature: bytes(4627),
 }
 
-type ClassificationAuditEntry = struct {
+// ── Data: Stored audit trail ────────────────────────────────────
+
+data ClassificationAuditEntry : mind v1 {
     entry_id: bytes(16),
     target_id: bytes(16),
     action: string,
@@ -43,6 +48,13 @@ type ClassificationAuditEntry = struct {
     propagation_depth: u8,
     timestamp: u64,
 }
+    store kv
+    govern lex esn/global/org/polylabs/mind/classify
+    cortex {
+        obfuscate [target_id]
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
 
 // ── Circuits ────────────────────────────────────────────────────
 
@@ -52,11 +64,10 @@ circuit propagate_sensitivity(
     max_depth: u8,
     signing_sk: bytes(4896),
 ) -> PropagationResult
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/classify
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time false
     observe metrics: [propagation_ops, documents_reclassified, propagation_depth_max]
     monitor "propagation_scope" { documents_reclassified < 1000 }
@@ -141,11 +152,10 @@ circuit reclassify_document(
     user_id: bytes(16),
     signing_sk: bytes(4896),
 ) -> ClassificationOverride
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/classify
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time false
     observe metrics: [reclassification_ops, classification_escalations, classification_downgrades]
     invariant "valid_classification" { new_classification <= 5 }
@@ -175,11 +185,10 @@ circuit reclassify_document(
 }
 
 circuit check_sensitivity_boundary(current: u8, proposed: u8) -> bool
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/classify
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [boundary_checks, boundary_rejections]
 {
     if proposed < current { false }
@@ -189,11 +198,10 @@ circuit check_sensitivity_boundary(current: u8, proposed: u8) -> bool
 }
 
 circuit audit_classification(entry: ClassificationAuditEntry) -> bool
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/classify
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [audit_entries_written]
     wasm_abi [eslite_insert]
 {

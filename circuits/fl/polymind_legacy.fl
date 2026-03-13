@@ -1,7 +1,9 @@
-/// Poly Mind Legacy — Digital legacy with K-of-N guardian governance
-/// PQ lattice-based threshold secret sharing
-/// Graduated transfer: PUBLIC (day 0), INTERNAL (day 30), SENSITIVE (day 90), RESTRICTED (day 180)
-/// govern lex esn/global/org/polylabs/mind
+// Poly Mind Legacy — Digital legacy with K-of-N guardian governance (v0.11.0)
+//
+// Lex Architecture:
+//   esn/global/org/polylabs/mind/legacy
+//   PQ lattice-based threshold secret sharing
+//   Graduated transfer: PUBLIC (day 0), INTERNAL (day 30), SENSITIVE (day 90), RESTRICTED (day 180)
 
 import polykit_identity
 import polykit_metering
@@ -16,29 +18,11 @@ type GuardianConfig = struct {
     share_index: u8,
 }
 
-type LegacyTrigger = struct {
-    trigger_id: bytes(16),
-    trigger_type: u8,
-    evidence_hash: bytes(32),
-    submitted_by: bytes(16),
-    submitted_at: u64,
-    signatures: list<bytes(4627)>,
-    signature_count: u8,
-}
-
 type TransferTier = struct {
     tier: u8,
     classification_level: u8,
     unlock_day: u32,
     description: string,
-}
-
-type AliveProof = struct {
-    proof_id: bytes(16),
-    user_id: bytes(16),
-    spark_signature: bytes(4627),
-    biometric_hash: bytes(32),
-    timestamp: u64,
 }
 
 type LegacyState = struct {
@@ -51,6 +35,42 @@ type LegacyState = struct {
     last_alive_proof: u64,
 }
 
+// ── Data: Stored legacy entities ────────────────────────────────
+
+data LegacyTrigger : mind v1 {
+    trigger_id: bytes(16),
+    trigger_type: u8,
+    evidence_hash: bytes(32),
+    submitted_by: bytes(16),
+    submitted_at: u64,
+    signatures: list<bytes(4627)>,
+    signature_count: u8,
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/legacy
+    cortex {
+        redact [evidence_hash]
+        obfuscate [submitted_by]
+        infer on_write
+        on_anomaly alert "mind-legacy"
+    }
+
+data AliveProof : mind v1 {
+    proof_id: bytes(16),
+    user_id: bytes(16),
+    spark_signature: bytes(4627),
+    biometric_hash: bytes(32),
+    timestamp: u64,
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/legacy
+    cortex {
+        redact [biometric_hash, spark_signature]
+        obfuscate [user_id]
+        infer on_write
+        on_anomaly alert "mind-legacy"
+    }
+
 // ── Circuits ────────────────────────────────────────────────────
 
 circuit designate_guardian(
@@ -60,11 +80,10 @@ circuit designate_guardian(
     threshold_n: u8,
     signing_sk: bytes(4896),
 ) -> GovernanceNode
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/legacy
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time true
     observe metrics: [guardians_designated, guardian_designation_latency_ns]
     monitor "guardian_designation_rate" { guardians_designated < 10/s }
@@ -138,11 +157,10 @@ circuit revoke_guardian(
     guardian_id: bytes(16),
     signing_sk: bytes(4896),
 ) -> bool
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/legacy
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time true
     observe metrics: [guardians_revoked]
     meters [compute_cycles, memory_bytes]
@@ -164,11 +182,10 @@ circuit submit_alive_proof(
     biometric_hash: bytes(32),
     signing_sk: bytes(4896),
 ) -> AliveProof
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/legacy
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time true
     observe metrics: [alive_proofs_submitted, alive_proof_latency_ns]
     invariant "biometric_present" { len(biometric_hash) == 32 }
@@ -202,11 +219,10 @@ circuit submit_trigger(
     evidence_hash: bytes(32),
     guardian_sk: bytes(4896),
 ) -> LegacyTrigger
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/legacy
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time true
     observe metrics: [triggers_submitted]
     invariant "valid_trigger_type" { trigger_type <= 2 }
@@ -239,11 +255,10 @@ circuit collect_signatures(
     guardian_pk: bytes(2592),
     threshold_k: u8,
 ) -> LegacyTrigger
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/legacy
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time true
     observe metrics: [signatures_collected, threshold_met_events]
     meters [compute_cycles, memory_bytes]
@@ -274,11 +289,10 @@ circuit unlock_tier(
     tier: TransferTier,
     signing_sk: bytes(4896),
 ) -> u32
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/legacy
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time true
     observe metrics: [tiers_unlocked, documents_transferred]
     invariant "valid_tier" { tier.classification_level <= 3 }
@@ -326,11 +340,10 @@ circuit execute_purge(
     trigger_id: bytes(16),
     signing_sk: bytes(4896),
 ) -> u32
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/legacy
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time true
     observe metrics: [purges_executed, documents_purged]
     meters [compute_cycles, memory_bytes]
@@ -377,11 +390,10 @@ circuit generate_lattice_share(
     k: u8,
     n: u8,
 ) -> bytes
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/legacy
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time true
 {
     let corpus_key = eslite_query("corpus_keys", user_id)
@@ -392,11 +404,10 @@ circuit regenerate_shares(
     user_id: bytes(16),
     signing_sk: bytes(4896),
 ) -> bool
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind/legacy
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time true
     wasm_abi [eslite_query, now]
 {

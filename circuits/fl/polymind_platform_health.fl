@@ -1,23 +1,21 @@
-/// Poly Mind Platform Health — Blind relay telemetry for corpus operations
-///
-/// Aggregates platform-wide health metrics under zero-linkage privacy:
-///   - SPARK identity blinded via HKDF("poly-mind-telemetry-v1")
-///   - k-Anonymity cohort enforcement (min 50 users)
-///   - Differential privacy noise on all emitted metrics
-///   - Temporal aggregation (1h minimum window)
-///
-/// Lex Architecture:
-///   esn/global/org/polylabs/mind
-///     └── sub_lex corpus fan_in  ← per-corpus health; aggregates fan up
-///
-/// govern lex esn/global/org/polylabs/mind
+// Poly Mind Platform Health — Blind relay telemetry for corpus operations (v0.11.0)
+//
+// Aggregates platform-wide health metrics under zero-linkage privacy:
+//   - SPARK identity blinded via HKDF("poly-mind-telemetry-v1")
+//   - k-Anonymity cohort enforcement (min 50 users)
+//   - Differential privacy noise on all emitted metrics
+//   - Temporal aggregation (1h minimum window)
+//
+// Lex Architecture:
+//   esn/global/org/polylabs/mind
+//     └── sub_lex corpus fan_in  ← per-corpus health; aggregates fan up
 
 import polykit_blind_telemetry from "../../polykit/circuits/fl/polykit_blind_telemetry.fl"
 import polykit_metering from "../../polykit/circuits/fl/polykit_metering.fl"
 
-// ── Data Declarations with Stratum + Cortex ─────────────────────────
+// ── Data Declarations ───────────────────────────────────────────
 
-data PlatformMetrics : app v1 {
+data PlatformMetrics : mind v1 {
     blinded_mind_id: bytes(32),
     window_start_ms: u64,
     window_end_ms: u64,
@@ -40,7 +38,7 @@ data PlatformMetrics : app v1 {
         on_anomaly alert "mind-team"
     }
 
-data MindHealthSnapshot : app v1 {
+data MindHealthSnapshot : mind v1 {
     period_start_ms: u64,
     period_end_ms: u64,
     total_queries: u64,
@@ -66,7 +64,7 @@ type MindHealthStatus = enum {
     Critical,
 }
 
-// ── Streams ─────────────────────────────────────────────────────────
+// ── Streams ─────────────────────────────────────────────────────
 
 stream mind_health_events: event<PlatformMetrics>
     retention 365d
@@ -77,14 +75,14 @@ stream mind_anomaly_events: event<MindHealthSnapshot>
     retention forever
     consumers [streamsight, governance, alerting]
 
-// ── Series ──────────────────────────────────────────────────────────
+// ── Series ──────────────────────────────────────────────────────
 
 series mind_health_series: mind_health_events
     merkle_chain true
     lattice_imprint true
     witness_attest true
 
-// ── Core Circuit: Platform Health ───────────────────────────────────
+// ── Core Circuit: Platform Health ───────────────────────────────
 
 circuit polymind_platform_health(
     spark_id: bytes(32),
@@ -105,7 +103,6 @@ circuit polymind_platform_health(
         audit_trail true
         sub_lex corpus fan_in
     }
-    status production
     precision C
     streamsight true
     povc true
@@ -206,7 +203,7 @@ circuit polymind_platform_health(
     some(metrics)
 }
 
-// ── Secondary Circuit: Anomaly Check with Cortex AI Feed ────────────
+// ── Secondary Circuit: Anomaly Check ────────────────────────────
 
 circuit polymind_anomaly_check(
     window_start_ms: u64,
@@ -220,7 +217,6 @@ circuit polymind_anomaly_check(
     lex esn/global/org/polylabs/mind {
         sub_lex corpus fan_in
     }
-    status production
     precision B
     streamsight true
     povc true

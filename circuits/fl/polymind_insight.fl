@@ -1,7 +1,9 @@
-/// Poly Mind Insight — Proactive insight and contradiction detection
-/// ESLM compound intelligence across sessions
-/// ai_feed corpus_insight
-/// govern lex esn/global/org/polylabs/mind
+// Poly Mind Insight — Proactive insight and contradiction detection (v0.11.0)
+//
+// Lex Architecture:
+//   esn/global/org/polylabs/mind/insight
+//   ESLM compound intelligence across sessions
+//   ai_feed corpus_insight
 
 import polykit_identity
 import polykit_metering
@@ -16,7 +18,9 @@ type InsightType = enum {
     Prediction,
 }
 
-type InsightResult = struct {
+// ── Data: Stored insight entities ───────────────────────────────
+
+data InsightResult : mind v1 {
     insight_id: bytes(16),
     insight_type: u8,
     source_documents: list<bytes(16)>,
@@ -26,8 +30,15 @@ type InsightResult = struct {
     relevance: u16,
     generated_at: u64,
 }
+    store kv
+    govern lex esn/global/org/polylabs/mind/insight
+    cortex {
+        infer on_write
+        on_anomaly alert "mind-team"
+        on_suggestion store "cortex/mind/insight_feedback"
+    }
 
-type ContradictionReport = struct {
+data ContradictionReport : mind v1 {
     contradiction_id: bytes(16),
     document_a: bytes(16),
     document_b: bytes(16),
@@ -37,6 +48,12 @@ type ContradictionReport = struct {
     detected_at: u64,
     resolved: bool,
 }
+    store kv
+    govern lex esn/global/org/polylabs/mind/insight
+    cortex {
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
 
 type ConnectionSuggestion = struct {
     suggestion_id: bytes(16),
@@ -55,11 +72,10 @@ circuit detect_contradictions(
     scope_concept_ids: list<bytes(16)>,
     signing_sk: bytes(4896),
 ) -> list<ContradictionReport>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/insight
-    status production
     precision C
     povc true
-    profile poly_framework_standard
     observe metrics: [contradiction_scans, contradictions_found, scan_latency_ns]
     monitor "contradiction_rate" { contradictions_found / contradiction_scans < 0.3 }
     meters [compute_cycles, memory_bytes]
@@ -126,11 +142,10 @@ circuit suggest_connections(
     document_id: bytes(16),
     max_suggestions: u16,
 ) -> list<ConnectionSuggestion>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/insight
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [connection_suggestions, suggestions_accepted]
     meters [compute_cycles, memory_bytes]
     wasm_abi [eslite_query, eslm_similarity, now]
@@ -174,11 +189,10 @@ circuit generate_insight(
     context_window: u64,
     signing_sk: bytes(4896),
 ) -> InsightResult
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/insight
-    status production
     precision C
     povc true
-    profile poly_framework_standard
     observe metrics: [insights_generated, insight_confidence_avg]
     meters [compute_cycles, memory_bytes]
     wasm_abi [eslite_query, eslm_generate, eslm_similarity, now]
@@ -230,11 +244,10 @@ circuit rank_insights(
     user_preferences: bytes,
     max_results: u16,
 ) -> list<InsightResult>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/insight
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [insight_rank_ops]
 {
     let scored = parallel for insight in insights {
@@ -249,11 +262,10 @@ circuit rank_insights(
 // ── Internal helpers ────────────────────────────────────────────
 
 circuit compute_relevance(docs: list<QueryResultItem>) -> u16
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/insight
-    status production
     precision B
     povc true
-    profile poly_framework_standard
 {
     if len(docs) == 0 { 0 }
     else {
@@ -266,11 +278,10 @@ circuit compute_relevance(docs: list<QueryResultItem>) -> u16
 }
 
 circuit compute_recency_bonus(timestamp: u64) -> u16
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/insight
-    status production
     precision B
     povc true
-    profile poly_framework_standard
 {
     let age_ms = (now_ns() / 1000000) - timestamp
     let day_ms = 86400000

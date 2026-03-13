@@ -1,6 +1,15 @@
-/// Poly Mind Knowledge Graph — Full Stratum + Cortex graph
-/// Stratum graph storage + Cortex AI governance
-/// govern lex esn/global/org/polylabs/mind
+// Poly Mind Knowledge Graph — Corpus graph with document/concept/relationship nodes (v0.11.0)
+//
+// Lex Architecture:
+//   esn/global/org/polylabs/mind
+//   Stratum graph storage + Cortex AI governance
+//   CSR tiered storage (hot @bram, warm @ddr, cold @nvme)
+//
+// Graph: knowledge_corpus
+//   Nodes: DocumentNode, ConceptNode, RelationshipNode
+//   Edges: ReferencesEdge, DerivedFromEdge, ContradictEdge
+//   Overlays: relevance_score, last_accessed_ns, citation_count, confidence
+//   AI Feed: corpus_insight (emerging topics, relevance decay, contradiction clusters)
 
 import polykit_identity
 import polykit_metering
@@ -46,7 +55,7 @@ type RelationshipType = enum {
 
 // ── Data: Node types (Stratum store graph + Cortex) ─────────────
 
-data DocumentNode : app v1 {
+data DocumentNode : mind v1 {
     document_id: bytes(16),
     content_hash: bytes(32),
     content_encrypted: bytes,
@@ -74,7 +83,7 @@ data DocumentNode : app v1 {
         on_suggestion store "cortex/mind/insights"
     }
 
-data ConceptNode : app v1 {
+data ConceptNode : mind v1 {
     concept_id: bytes(16),
     embedding_vector: bytes(1024),
     embedding_hash: bytes(32),
@@ -93,7 +102,7 @@ data ConceptNode : app v1 {
         on_suggestion store "cortex/mind/concept_links"
     }
 
-data RelationshipNode : app v1 {
+data RelationshipNode : mind v1 {
     relationship_id: bytes(16),
     relationship_type: u8,
     subject_id: bytes(16),
@@ -212,11 +221,10 @@ circuit insert_document(
     word_count: u32,
     signing_sk: bytes(4896),
 ) -> DocumentNode
+    profile poly_framework_sensitive
     lex esn/global/org/polylabs/mind
-    status production
     precision C
     povc true
-    profile poly_framework_sensitive
     constant_time false
     observe metrics: [documents_inserted, document_insert_latency_ns, corpus_size_bytes]
     monitor "document_ingestion_rate" { documents_inserted < 100/s }
@@ -290,11 +298,10 @@ circuit insert_concept(
     derivation_confidence: u16,
     signing_sk: bytes(4896),
 ) -> ConceptNode
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind
-    status production
     precision C
     povc true
-    profile poly_framework_standard
     observe metrics: [concepts_inserted, concept_insert_latency_ns]
     invariant "valid_entity_type" { entity_type <= 6 }
     invariant "confidence_bounded" { derivation_confidence <= 1000 }
@@ -348,11 +355,10 @@ circuit insert_relationship(
     temporal_end: u64,
     signing_sk: bytes(4896),
 ) -> RelationshipNode
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind
-    status production
     precision C
     povc true
-    profile poly_framework_standard
     observe metrics: [relationships_inserted]
     invariant "valid_type" { relationship_type <= 4 }
     invariant "strength_bounded" { strength <= 1000 }
@@ -399,8 +405,8 @@ circuit get_document(
     graph_id: bytes(32),
     document_id: bytes(16),
 ) -> option<DocumentNode>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind
-    status production
     precision B
     observe metrics: [document_lookups]
 {
@@ -411,8 +417,8 @@ circuit get_concepts_for_document(
     graph_id: bytes(32),
     document_id: bytes(16),
 ) -> list<ConceptNode>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind
-    status production
     precision B
     observe metrics: [concept_lookups]
 {
@@ -423,8 +429,8 @@ circuit get_documents_for_concept(
     graph_id: bytes(32),
     concept_id: bytes(16),
 ) -> list<DocumentNode>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind
-    status production
     precision B
     observe metrics: [reverse_concept_lookups]
 {
@@ -435,8 +441,8 @@ circuit get_contradictions(
     graph_id: bytes(32),
     document_id: bytes(16),
 ) -> list<ContradictEdge>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind
-    status production
     precision B
     observe metrics: [contradiction_lookups]
 {
@@ -449,8 +455,8 @@ circuit get_neighborhood(
     max_hops: u8,
     classification_ceiling: u8,
 ) -> list<bytes(16)>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind
-    status production
     precision B
     observe metrics: [neighborhood_queries, nodes_visited]
     invariant "hops_bounded" { max_hops <= 5 }
@@ -482,11 +488,10 @@ circuit update_relevance(
     document_id: bytes(16),
     delta: i16,
 ) -> u16
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [relevance_updates]
 {
     let current = overlay_get(knowledge_corpus, document_id, relevance_score)
@@ -500,11 +505,10 @@ circuit decay_relevance(
     threshold: u16,
     decay_factor: u16,
 ) -> u32
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [decay_ops, documents_decayed, documents_staled]
 {
     let ts = now_ns()
@@ -535,11 +539,10 @@ circuit prune_stale(
     max_stale_days: u32,
     signing_sk: bytes(4896),
 ) -> u32
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind
-    status production
     precision C
     povc true
-    profile poly_framework_standard
     observe metrics: [prune_ops, documents_pruned]
 {
     let ts = now_ns()
@@ -565,14 +568,12 @@ circuit prune_stale(
     pruned
 }
 
-// ── Circuits: Quantum state snapshot ────────────────────────────
-
 circuit snapshot_corpus_state(
     user_id: bytes(16),
     signing_sk: bytes(4896),
 ) -> string
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind
-    status production
     precision C
     povc true
     observe metrics: [snapshots_created, snapshot_size_bytes]
@@ -613,3 +614,28 @@ stream concept_events: event<ConceptNode>
 stream insight_events: event<InsightResult>
     retention 365d
     consumers [streamsight, eslm, mind_team]
+
+// ── Test / KAT / Fuzz annotations ──────────────────────────────
+
+test golden "insert_document_classification_bounds" {
+    let sk = bytes(4896, 0xBB)
+    let uid = bytes(16, 0x01)
+    let content = bytes(256, 0xCC)
+    let embedding = bytes(1024, 0xDD)
+    let doc = insert_document(uid, content, sha3_256(content), 5, 0,
+        bytes(16, 0x00), "/notes/sovereign.md", 1, sha3_256("Sovereign"), embedding, 50, sk)
+    assert doc.classification == 5
+}
+
+fuzz_target "insert_document_fuzz" {
+    inputs {
+        user_id: bytes(16)
+        content_encrypted: bytes(1..4096)
+        classification: u8
+        source_product: u8
+        signing_sk: bytes(4896)
+    }
+    assert {
+        no_panic
+    }
+}

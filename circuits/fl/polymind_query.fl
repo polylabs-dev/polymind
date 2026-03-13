@@ -1,6 +1,8 @@
-/// Poly Mind Query — Vector search + graph traversal query engine
-/// Hybrid retrieval: vector similarity + graph neighborhood + temporal recency
-/// govern lex esn/global/org/polylabs/mind
+// Poly Mind Query — Vector search + graph traversal query engine (v0.11.0)
+//
+// Lex Architecture:
+//   esn/global/org/polylabs/mind/query
+//   Hybrid retrieval: vector similarity + graph neighborhood + temporal recency
 
 import polykit_identity
 import polykit_metering
@@ -34,7 +36,9 @@ type RelevanceScore = struct {
     composite: u16,
 }
 
-type QueryPlan = struct {
+// ── Data: Stored query plans and results ────────────────────────
+
+data QueryPlan : mind v1 {
     plan_id: bytes(16),
     mode: u8,
     vector_candidates: u32,
@@ -42,14 +46,25 @@ type QueryPlan = struct {
     temporal_window_ms: u64,
     estimated_cost_cycles: u64,
 }
+    store kv
+    govern lex esn/global/org/polylabs/mind/query
+    cortex {
+        infer on_read
+    }
 
-type QueryResultItem = struct {
+data QueryResultItem : mind v1 {
     document_id: bytes(16),
     concept_ids: list<bytes(16)>,
     score: RelevanceScore,
     snippet_hash: bytes(32),
     classification: u8,
 }
+    store kv
+    govern lex esn/global/org/polylabs/mind/query
+    cortex {
+        obfuscate [snippet_hash]
+        infer on_read
+    }
 
 type QueryResult = struct {
     plan: QueryPlan,
@@ -62,11 +77,10 @@ type QueryResult = struct {
 // ── Circuits ────────────────────────────────────────────────────
 
 circuit query_corpus(req: QueryRequest) -> QueryResult
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/query
-    status production
     precision C
     povc true
-    profile poly_framework_standard
     observe metrics: [query_ops, query_latency_ns, results_returned, empty_results]
     monitor "query_latency_p99" { query_latency_ns < 500000000 }
     invariant "max_results_bounded" { req.max_results <= 1000 }
@@ -130,11 +144,10 @@ circuit vector_search(
     max_candidates: u32,
     classification_ceiling: u8,
 ) -> list<QueryResultItem>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/query
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [vector_search_ops, vector_candidates_scanned]
     wasm_abi [eslite_query, eslm_similarity]
 {
@@ -150,11 +163,10 @@ circuit graph_traverse(
     max_hops: u8,
     classification_ceiling: u8,
 ) -> list<QueryResultItem>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/query
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [graph_traverse_ops, graph_nodes_visited]
     wasm_abi [eslite_query, eslm_similarity]
 {
@@ -184,11 +196,10 @@ circuit rank_results(
     min_relevance: u16,
     max_results: u16,
 ) -> list<QueryResultItem>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/query
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [rank_ops, candidates_filtered]
 {
     let scored = parallel for item in candidates {
@@ -221,11 +232,10 @@ circuit explain_reasoning(
     plan: QueryPlan,
     results: list<QueryResultItem>,
 ) -> string
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/query
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [explanation_ops]
     wasm_abi [eslm_generate]
 {
@@ -241,11 +251,10 @@ circuit explain_reasoning(
 // ── Internal helpers ────────────────────────────────────────────
 
 circuit build_query_plan(req: QueryRequest) -> QueryPlan
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/query
-    status production
     precision B
     povc true
-    profile poly_framework_standard
 {
     let plan_id = bit_slice(sha3_256(concat(req.user_id, req.query_text, now_ns())), 0, 128)
     let vec_count = if req.mode == 0 or req.mode == 3 { req.max_results * 10 } else { 0 }
@@ -269,11 +278,10 @@ circuit temporal_scan(
     end: u64,
     classification_ceiling: u8,
 ) -> list<QueryResultItem>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/query
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [temporal_scan_ops]
     wasm_abi [eslite_query]
 {
@@ -286,11 +294,10 @@ circuit merge_deduplicate(
     graph: list<QueryResultItem>,
     temporal: list<QueryResultItem>,
 ) -> list<QueryResultItem>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/query
-    status production
     precision B
     povc true
-    profile poly_framework_standard
 {
     let seen = set()
     let merged = []
@@ -304,11 +311,10 @@ circuit merge_deduplicate(
 }
 
 circuit compute_recency_bonus(last_access_ns: u64) -> u16
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/query
-    status production
     precision B
     povc true
-    profile poly_framework_standard
 {
     let age_ms = (now_ns() - last_access_ns) / 1000000
     let day_ms = 86400000

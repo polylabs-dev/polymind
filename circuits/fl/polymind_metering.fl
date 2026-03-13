@@ -1,10 +1,12 @@
-/// Poly Mind Metering — Per-product 8D metering (isolated)
-/// Maps: ingest [S,O,E,C], query [E,O,C], legacy [O,E], insight [E,C]
-/// govern lex esn/global/org/polylabs/mind
+// Poly Mind Metering — Per-product 8D metering, isolated (v0.11.0)
+//
+// Lex Architecture:
+//   esn/global/org/polylabs/mind/metering
+//   Maps: ingest [S,O,E,C], query [E,O,C], legacy [O,E], insight [E,C]
 
 import polykit_metering
 
-// ── Metering Profiles ───────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────
 
 type MindOperation = enum {
     Ingest,
@@ -15,7 +17,9 @@ type MindOperation = enum {
     Sync,
 }
 
-type MindMeteringProfile = struct {
+// ── Data: Stored metering profile ───────────────────────────────
+
+data MindMeteringProfile : mind v1 {
     operation: u8,
     executions: u64,
     hashes: u64,
@@ -26,15 +30,20 @@ type MindMeteringProfile = struct {
     circuits: u64,
     mpc_sessions: u64,
 }
+    store kv
+    govern lex esn/global/org/polylabs/mind/metering
+    cortex {
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
 
 // ── Circuits ────────────────────────────────────────────────────
 
 circuit meter_ingest(user_id: bytes(16), content_size: u64, concept_count: u32) -> MeteringRecord
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/metering
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [ingest_metering_ops]
     monitor "ingest_metering_rate" { ingest_metering_ops < 5000/s }
     test golden "meter_ingest_basic" {
@@ -56,11 +65,10 @@ circuit meter_ingest(user_id: bytes(16), content_size: u64, concept_count: u32) 
 }
 
 circuit meter_query(user_id: bytes(16), candidates_scanned: u32, results_returned: u16) -> MeteringRecord
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/metering
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [query_metering_ops]
 {
     polykit_metering::record_usage(user_id, "mind_query", DimensionValues {
@@ -76,11 +84,10 @@ circuit meter_query(user_id: bytes(16), candidates_scanned: u32, results_returne
 }
 
 circuit meter_classify(user_id: bytes(16), nodes_updated: u32) -> MeteringRecord
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/metering
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [classify_metering_ops]
 {
     polykit_metering::record_usage(user_id, "mind_classify", DimensionValues {
@@ -96,11 +103,10 @@ circuit meter_classify(user_id: bytes(16), nodes_updated: u32) -> MeteringRecord
 }
 
 circuit meter_legacy(user_id: bytes(16), operation: string) -> MeteringRecord
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/metering
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [legacy_metering_ops]
 {
     polykit_metering::record_usage(user_id, concat("mind_legacy_", operation), DimensionValues {
@@ -116,11 +122,10 @@ circuit meter_legacy(user_id: bytes(16), operation: string) -> MeteringRecord
 }
 
 circuit meter_insight(user_id: bytes(16), sources_analyzed: u32) -> MeteringRecord
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/metering
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [insight_metering_ops]
 {
     polykit_metering::record_usage(user_id, "mind_insight", DimensionValues {
@@ -136,11 +141,10 @@ circuit meter_insight(user_id: bytes(16), sources_analyzed: u32) -> MeteringReco
 }
 
 circuit meter_sync(user_id: bytes(16), checkpoint_size: u64) -> MeteringRecord
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/metering
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [sync_metering_ops]
 {
     polykit_metering::record_usage(user_id, "mind_sync", DimensionValues {
@@ -158,11 +162,10 @@ circuit meter_sync(user_id: bytes(16), checkpoint_size: u64) -> MeteringRecord
 // ── Tier Definitions ────────────────────────────────────────────
 
 circuit get_mind_tier_limits(tier_name: string) -> TierLimits
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/metering
-    status production
     precision B
     povc true
-    profile poly_framework_standard
 {
     if tier_name == "premium" {
         TierLimits {
@@ -210,11 +213,10 @@ circuit get_mind_tier_limits(tier_name: string) -> TierLimits
 }
 
 circuit check_mind_limits(user_id: bytes(16), tier_name: string) -> list<MeteringDimension>
+    profile poly_framework_standard
     lex esn/global/org/polylabs/mind/metering
-    status production
     precision B
     povc true
-    profile poly_framework_standard
     observe metrics: [limit_checks, limit_violations]
 {
     let current = polykit_metering::get_usage_summary(user_id)

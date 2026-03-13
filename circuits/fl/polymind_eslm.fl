@@ -1,0 +1,542 @@
+// Poly Mind ESLM — Model management, checkpointing, fine-tuning, inference (v0.11.0)
+//
+// Lex Architecture:
+//   esn/global/org/polylabs/mind/eslm
+//   On-device ESLM (eStream Small Language Model) with persistent SSM state.
+//   Manages model checkpoints, fine-tuning jobs, and inference requests.
+//   All inference is local; network used only for scatter-sync of encrypted state.
+
+import polykit_identity
+import polykit_metering
+
+// ── Enums ───────────────────────────────────────────────────────
+
+type ModelStatus = enum {
+    Initializing,
+    Ready,
+    FineTuning,
+    Checkpointing,
+    Degraded,
+    Retired,
+}
+
+type InferenceMode = enum {
+    Completion,
+    Embedding,
+    Classification,
+    Extraction,
+    Summarization,
+    Comparison,
+}
+
+type CheckpointType = enum {
+    Scheduled,
+    PreFineTune,
+    PostFineTune,
+    Manual,
+    Recovery,
+}
+
+type FineTuneStrategy = enum {
+    LoRA,
+    FullRetrain,
+    DomainAdaptation,
+    IncrementalSSM,
+}
+
+// ── Data: Stored ESLM entities ──────────────────────────────────
+
+data EslmModel : mind v1 {
+    model_id: bytes(16),
+    user_id: bytes(16),
+    model_version: u32,
+    ssm_state_hash: bytes(32),
+    ssm_state_encrypted: bytes,
+    parameter_count: u64,
+    vocab_size: u32,
+    embedding_dim: u16,
+    context_window: u32,
+    status: u8,
+    fine_tune_count: u32,
+    total_tokens_processed: u64,
+    created_at: u64,
+    updated_at: u64,
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/eslm
+    cortex {
+        redact [ssm_state_encrypted]
+        infer on_write
+        on_anomaly alert "mind-team"
+        on_suggestion store "cortex/mind/eslm_health"
+    }
+
+data Checkpoint : mind v1 {
+    checkpoint_id: bytes(16),
+    model_id: bytes(16),
+    checkpoint_type: u8,
+    model_version: u32,
+    ssm_state_hash: bytes(32),
+    parameter_hash: bytes(32),
+    scatter_ref: bytes(32),
+    tokens_at_checkpoint: u64,
+    size_bytes: u64,
+    created_at: u64,
+    signature: bytes(4627),
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/eslm
+    cortex {
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
+
+data InferenceResult : mind v1 {
+    inference_id: bytes(16),
+    model_id: bytes(16),
+    mode: u8,
+    input_hash: bytes(32),
+    output_hash: bytes(32),
+    output_encrypted: bytes,
+    confidence: u16,
+    tokens_consumed: u32,
+    latency_ns: u64,
+    ssm_state_delta_hash: bytes(32),
+    created_at: u64,
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/eslm
+    cortex {
+        redact [output_encrypted]
+        obfuscate [input_hash]
+        infer on_write
+        on_suggestion store "cortex/mind/inference_quality"
+    }
+
+data FineTuneJob : mind v1 {
+    job_id: bytes(16),
+    model_id: bytes(16),
+    strategy: u8,
+    corpus_filter: bytes,
+    pre_checkpoint_id: bytes(16),
+    post_checkpoint_id: bytes(16),
+    documents_processed: u32,
+    tokens_processed: u64,
+    loss_initial: u32,
+    loss_final: u32,
+    started_at: u64,
+    completed_at: u64,
+    status: u8,
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/eslm
+    cortex {
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
+
+// ── State Machine: ESLM Lifecycle ───────────────────────────────
+
+state_machine eslm_lifecycle {
+    initial INITIALIZING
+    persistence wal
+    terminal [RETIRED]
+    li_anomaly_detection true
+
+    INITIALIZING -> READY when model_loaded guard parameters_valid
+    READY -> FINE_TUNING when fine_tune_started guard checkpoint_saved
+    READY -> CHECKPOINTING when checkpoint_requested
+    READY -> DEGRADED when quality_drop guard confidence_below_threshold
+    FINE_TUNING -> READY when fine_tune_complete guard loss_improved
+    FINE_TUNING -> DEGRADED when fine_tune_failed
+    CHECKPOINTING -> READY when checkpoint_complete guard scatter_synced
+    DEGRADED -> READY when recovery_complete guard checkpoint_restored
+    DEGRADED -> RETIRED when manual_retire
+}
+
+// ── Streams ─────────────────────────────────────────────────────
+
+stream eslm_events: event<EslmModel>
+    retention 365d
+    consumers [streamsight, mind_team]
+
+stream inference_events: event<InferenceResult>
+    retention 90d
+    consumers [streamsight, corpus_insight]
+
+stream checkpoint_events: event<Checkpoint>
+    retention 7y
+    consumers [governance, audit, streamsight]
+
+// ── Circuits: Model Management ──────────────────────────────────
+
+circuit initialize_model(
+    user_id: bytes(16),
+    parameter_count: u64,
+    vocab_size: u32,
+    embedding_dim: u16,
+    context_window: u32,
+    signing_sk: bytes(4896),
+) -> EslmModel
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/eslm
+    precision C
+    povc true
+    observe metrics: [models_initialized]
+    invariant "valid_params" { parameter_count > 0 }
+    invariant "valid_vocab" { vocab_size > 0 }
+    invariant "valid_dim" { embedding_dim > 0 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, now, csprng]
+    test golden "initialize_default_model" {
+        let sk = bytes(4896, 0xBB)
+        let uid = bytes(16, 0x01)
+        let model = initialize_model(uid, 7000000, 32000, 512, 2048, sk)
+        assert len(model.model_id) == 16
+        assert model.status == 0
+    }
+{
+    let ts = now_ns() / 1000000
+    let model_seed = concat(user_id, csprng(16), ts)
+    let model_id = bit_slice(sha3_256(model_seed), 0, 128)
+
+    let initial_state = eslm_initialize_ssm(parameter_count, vocab_size, embedding_dim)
+    let state_hash = sha3_256(initial_state)
+    let encrypted_state = eslm_encrypt_state(user_id, initial_state)
+
+    let model = EslmModel {
+        model_id: model_id,
+        user_id: user_id,
+        model_version: 1,
+        ssm_state_hash: state_hash,
+        ssm_state_encrypted: encrypted_state,
+        parameter_count: parameter_count,
+        vocab_size: vocab_size,
+        embedding_dim: embedding_dim,
+        context_window: context_window,
+        status: 0,
+        fine_tune_count: 0,
+        total_tokens_processed: 0,
+        created_at: ts,
+        updated_at: ts,
+    }
+
+    let _sig = mldsa_sign(signing_sk, serialize(model))
+    eslite_insert("eslm_models", model_id, model)
+
+    state_machine_transition(eslm_lifecycle, model_id, "model_loaded")
+    emit(eslm_events, model)
+
+    polykit_metering::record_usage(user_id, "eslm_init", DimensionValues {
+        executions: 1, hashes: 1, bandwidth: 0,
+        storage: len(encrypted_state), observables: 1, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    model
+}
+
+// ── Circuits: Checkpointing ─────────────────────────────────────
+
+circuit create_checkpoint(
+    model_id: bytes(16),
+    checkpoint_type: u8,
+    signing_sk: bytes(4896),
+) -> Checkpoint
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/eslm
+    precision C
+    povc true
+    observe metrics: [checkpoints_created, checkpoint_size_bytes]
+    invariant "valid_type" { checkpoint_type <= 4 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslite_insert, now, csprng]
+{
+    let ts = now_ns() / 1000000
+    let model = eslite_query("eslm_models", model_id)
+    let checkpoint_seed = concat(model_id, csprng(16), ts)
+    let checkpoint_id = bit_slice(sha3_256(checkpoint_seed), 0, 128)
+
+    let param_hash = sha3_256(eslm_get_parameters(model_id))
+    let scatter_ref = scatter_store(
+        concat("checkpoint:", checkpoint_id),
+        model.ssm_state_encrypted,
+        "RESTRICTED"
+    )
+
+    let sig = mldsa_sign(signing_sk, concat(checkpoint_id, model.ssm_state_hash, param_hash, ts))
+
+    let checkpoint = Checkpoint {
+        checkpoint_id: checkpoint_id,
+        model_id: model_id,
+        checkpoint_type: checkpoint_type,
+        model_version: model.model_version,
+        ssm_state_hash: model.ssm_state_hash,
+        parameter_hash: param_hash,
+        scatter_ref: scatter_ref,
+        tokens_at_checkpoint: model.total_tokens_processed,
+        size_bytes: len(model.ssm_state_encrypted),
+        created_at: ts,
+        signature: sig,
+    }
+
+    eslite_insert("eslm_checkpoints", checkpoint_id, checkpoint)
+    emit(checkpoint_events, checkpoint)
+
+    checkpoint
+}
+
+circuit restore_checkpoint(
+    model_id: bytes(16),
+    checkpoint_id: bytes(16),
+    signing_sk: bytes(4896),
+) -> EslmModel
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/eslm
+    precision C
+    povc true
+    constant_time true
+    observe metrics: [checkpoints_restored]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslite_insert, now]
+{
+    let ts = now_ns() / 1000000
+    let checkpoint = eslite_query("eslm_checkpoints", checkpoint_id)
+    let encrypted_state = scatter_get(checkpoint.scatter_ref)
+
+    let model = eslite_query("eslm_models", model_id)
+    model.ssm_state_encrypted = encrypted_state
+    model.ssm_state_hash = checkpoint.ssm_state_hash
+    model.model_version = checkpoint.model_version
+    model.status = 1
+    model.updated_at = ts
+
+    let _sig = mldsa_sign(signing_sk, serialize(model))
+    eslite_insert("eslm_models", model_id, model)
+
+    state_machine_transition(eslm_lifecycle, model_id, "recovery_complete")
+    model
+}
+
+// ── Circuits: Inference ─────────────────────────────────────────
+
+circuit run_inference(
+    model_id: bytes(16),
+    mode: u8,
+    input: bytes,
+    max_tokens: u32,
+    signing_sk: bytes(4896),
+) -> InferenceResult
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/eslm
+    precision C
+    povc true
+    observe metrics: [inference_ops, inference_latency_ns, tokens_generated]
+    monitor "inference_latency_p99" { inference_latency_ns < 2000000000 }
+    invariant "valid_mode" { mode <= 5 }
+    invariant "input_nonempty" { len(input) > 0 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslite_insert, eslm_infer, now, csprng]
+    test golden "completion_inference" {
+        let sk = bytes(4896, 0xBB)
+        let mid = bytes(16, 0x01)
+        let result = run_inference(mid, 0, bytes(64, 0xCC), 128, sk)
+        assert len(result.inference_id) == 16
+        assert result.confidence > 0
+    }
+{
+    let t_start = now_ns()
+    let ts = t_start / 1000000
+    let model = eslite_query("eslm_models", model_id)
+
+    let (output, new_ssm_state, confidence, tokens) = eslm_infer(
+        model.ssm_state_encrypted, input, mode, max_tokens
+    )
+
+    let t_end = now_ns()
+    let inference_seed = concat(model_id, csprng(16), ts)
+    let inference_id = bit_slice(sha3_256(inference_seed), 0, 128)
+
+    let output_encrypted = eslm_encrypt_state(model.user_id, output)
+    let ssm_delta_hash = sha3_256(new_ssm_state)
+
+    let result = InferenceResult {
+        inference_id: inference_id,
+        model_id: model_id,
+        mode: mode,
+        input_hash: sha3_256(input),
+        output_hash: sha3_256(output),
+        output_encrypted: output_encrypted,
+        confidence: confidence,
+        tokens_consumed: tokens,
+        latency_ns: t_end - t_start,
+        ssm_state_delta_hash: ssm_delta_hash,
+        created_at: ts,
+    }
+
+    model.ssm_state_hash = ssm_delta_hash
+    model.ssm_state_encrypted = eslm_encrypt_state(model.user_id, new_ssm_state)
+    model.total_tokens_processed = model.total_tokens_processed + tokens
+    model.updated_at = ts
+    eslite_insert("eslm_models", model_id, model)
+
+    let _sig = mldsa_sign(signing_sk, serialize(result))
+    eslite_insert("eslm_inferences", inference_id, result)
+    emit(inference_events, result)
+
+    polykit_metering::record_usage(model.user_id, "eslm_inference", DimensionValues {
+        executions: 1, hashes: 2, bandwidth: 0,
+        storage: len(output_encrypted), observables: 1, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    result
+}
+
+// ── Circuits: Fine-Tuning ───────────────────────────────────────
+
+circuit start_fine_tune(
+    model_id: bytes(16),
+    strategy: u8,
+    corpus_filter: bytes,
+    signing_sk: bytes(4896),
+) -> FineTuneJob
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/eslm
+    precision C
+    povc true
+    observe metrics: [fine_tune_started, fine_tune_strategy]
+    invariant "valid_strategy" { strategy <= 3 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslite_insert, now, csprng]
+{
+    let ts = now_ns() / 1000000
+    let model = eslite_query("eslm_models", model_id)
+
+    let pre_checkpoint = create_checkpoint(model_id, 1, signing_sk)
+
+    let job_seed = concat(model_id, csprng(16), ts)
+    let job_id = bit_slice(sha3_256(job_seed), 0, 128)
+
+    let job = FineTuneJob {
+        job_id: job_id,
+        model_id: model_id,
+        strategy: strategy,
+        corpus_filter: corpus_filter,
+        pre_checkpoint_id: pre_checkpoint.checkpoint_id,
+        post_checkpoint_id: zero(16),
+        documents_processed: 0,
+        tokens_processed: 0,
+        loss_initial: 0,
+        loss_final: 0,
+        started_at: ts,
+        completed_at: 0,
+        status: 0,
+    }
+
+    model.status = 2
+    model.updated_at = ts
+    eslite_insert("eslm_models", model_id, model)
+    eslite_insert("eslm_jobs", job_id, job)
+
+    state_machine_transition(eslm_lifecycle, model_id, "fine_tune_started")
+
+    job
+}
+
+circuit complete_fine_tune(
+    job_id: bytes(16),
+    documents_processed: u32,
+    tokens_processed: u64,
+    loss_initial: u32,
+    loss_final: u32,
+    signing_sk: bytes(4896),
+) -> FineTuneJob
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/eslm
+    precision C
+    povc true
+    observe metrics: [fine_tune_completed, fine_tune_loss_delta]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_query, eslite_insert, now]
+{
+    let ts = now_ns() / 1000000
+    let job = eslite_query("eslm_jobs", job_id)
+    let model = eslite_query("eslm_models", job.model_id)
+
+    let post_checkpoint = create_checkpoint(job.model_id, 2, signing_sk)
+
+    job.post_checkpoint_id = post_checkpoint.checkpoint_id
+    job.documents_processed = documents_processed
+    job.tokens_processed = tokens_processed
+    job.loss_initial = loss_initial
+    job.loss_final = loss_final
+    job.completed_at = ts
+    job.status = 1
+
+    model.status = 1
+    model.model_version = model.model_version + 1
+    model.fine_tune_count = model.fine_tune_count + 1
+    model.total_tokens_processed = model.total_tokens_processed + tokens_processed
+    model.updated_at = ts
+
+    eslite_insert("eslm_models", job.model_id, model)
+    eslite_insert("eslm_jobs", job_id, job)
+
+    state_machine_transition(eslm_lifecycle, job.model_id, "fine_tune_complete")
+
+    polykit_metering::record_usage(model.user_id, "eslm_fine_tune", DimensionValues {
+        executions: 1, hashes: 2, bandwidth: 0,
+        storage: 0, observables: 2, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    job
+}
+
+// ── Circuits: Queries ───────────────────────────────────────────
+
+circuit get_model(model_id: bytes(16)) -> option<EslmModel>
+    profile poly_framework_standard
+    lex esn/global/org/polylabs/mind/eslm
+    precision B
+    observe metrics: [model_lookups]
+    wasm_abi [eslite_query]
+{
+    eslite_query("eslm_models", model_id)
+}
+
+circuit list_checkpoints(model_id: bytes(16)) -> list<Checkpoint>
+    profile poly_framework_standard
+    lex esn/global/org/polylabs/mind/eslm
+    precision B
+    observe metrics: [checkpoint_list_queries]
+    wasm_abi [eslite_scan]
+{
+    eslite_scan("eslm_checkpoints", concat("model:", model_id))
+}
+
+circuit get_inference_history(
+    model_id: bytes(16),
+    limit: u16,
+) -> list<InferenceResult>
+    profile poly_framework_standard
+    lex esn/global/org/polylabs/mind/eslm
+    precision B
+    observe metrics: [inference_history_queries]
+    wasm_abi [eslite_scan]
+{
+    eslite_scan("eslm_inferences", concat("model:", model_id))[0..min(limit, 1000)]
+}
+
+// ── Test / KAT / Fuzz annotations ──────────────────────────────
+
+fuzz_target "inference_fuzz" {
+    inputs {
+        model_id: bytes(16)
+        mode: u8
+        input: bytes(1..4096)
+        max_tokens: u32
+        signing_sk: bytes(4896)
+    }
+    assert {
+        no_panic
+    }
+}
