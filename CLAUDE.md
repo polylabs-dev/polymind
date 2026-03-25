@@ -1,6 +1,6 @@
 # Poly Mind
 
-Personal ESLM corpus and digital legacy system built on eStream v0.11.0 and PolyKit v0.3.0. Status: Active.
+Personal ESLM corpus and digital legacy system built on eStream v0.22.0 and PolyKit v0.3.0. 100% FastLang. No hand-written Rust. Status: Active.
 
 ## Overview
 
@@ -14,7 +14,7 @@ Poly Mind is a personal AI that grows with the user. It ingests conversations, d
 - **State machines**: `ingestion_lifecycle` (PENDING → CLASSIFYING → INDEXED → ACTIVE → STALE → PURGED), `legacy_lifecycle` (ACTIVE → PENDING_VERIFICATION → GRADUATED_TRANSFER → ARCHIVED)
 - **Overlays**: relevance_score, last_accessed_ns, citation_count, confidence (knowledge_corpus); guardian_status, transfer_phase (legacy_governance)
 - **ai_feed**: corpus_insight on knowledge_corpus (ESLM-powered knowledge synthesis, pattern detection, contradiction surfacing)
-- **Build**: FastLang `.fl` → ESCIR → Rust/WASM → `.escd`
+- **Build**: FastLang `.fl` → FLIR → Rust/WASM → `.escd`
 - **RBAC**: eStream `rbac.fl` composed via PolyKit profiles
 - **On-device**: All inference local; network used only for scatter-sync of encrypted state
 
@@ -38,11 +38,8 @@ See `docs/ARCHITECTURE.md` for full specification including graph/DAG constructs
 | ESLM Circuit | `circuits/fl/polymind_eslm.fl` | ESLM model management, checkpoints, fine-tuning, inference |
 | Guardian Transfer | `circuits/fl/polymind_guardian.fl` | K-of-N graduated digital legacy transfer |
 | RBAC Circuit | `circuits/fl/polymind_rbac.fl` | Role-based access control graph for enterprise corpora |
-| ESLM Engine | `crates/poly-mind-core/` | On-device inference with persistent SSM state |
-| Ingestion Pipeline | `crates/ingestion/` | Ingest from Poly products + external sources |
-| Knowledge Graph Engine | `crates/knowledge-graph/` | Entity/relationship/temporal graph operations |
-| Desktop App | `apps/desktop/` | Tauri-based personal AI interface |
-| Mobile App | `apps/mobile/` | React Native with Rust FFI |
+
+> **Note**: `crates/` is legacy scaffolding superseded by FLIR codegen. All logic lives in FastLang circuits.
 
 ## No REST API
 
@@ -58,18 +55,14 @@ All sync uses the eStream Wire Protocol (QUIC/UDP). No REST/HTTP endpoints. All 
 
 ## Platform
 
-- eStream v0.11.0
+- eStream v0.22.0
 - PolyKit v0.3.0
 - ESLM (eStream Small Language Model) with persistent SSM
+- FLIR codegen (FastLang → FLIR → Rust/WASM)
 - ML-KEM-1024, ML-DSA-87, SHA3-256
 - 8-Dimension metering
 - Blinded billing tokens
 
-## Cross-Repo Coordination
+## Commit Convention
 
-This repo is part of the [polylabs-dev](https://github.com/polylabs-dev) organization, coordinated through the **AI Toolkit hub** at `toddrooke/ai-toolkit/`.
-
-For cross-repo context, strategic priorities, and the master work queue:
-- `toddrooke/ai-toolkit/CLAUDE-CONTEXT.md` — org map and priorities
-- `toddrooke/ai-toolkit/scratch/BACKLOG.md` — master backlog
-- `toddrooke/ai-toolkit/repos/polylabs-dev.md` — this org's status summary
+Commit to the GitHub issue or epic the work was done under.

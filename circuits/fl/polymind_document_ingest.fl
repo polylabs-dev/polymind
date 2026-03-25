@@ -1,0 +1,507 @@
+// Poly Mind Document Ingest — Extract text and structure from documents for corpus indexing
+//
+// Lex Architecture:
+//   esn/global/org/polylabs/mind/document
+//   Composes polykit_studio_document to parse PDF, DOCX, PPTX, XLSX into structured
+//   text for corpus ingestion. Extracts headings, paragraphs, tables, and slide content
+//   as a hierarchical DocumentStructure, then feeds it through polymind_ingest for
+//   embedding and concept extraction. Classification is applied before indexing.
+//
+// Flow:
+//   ingest_document           → decrypt → parse structure → classify → embed → store
+//   extract_text              → parse document → flatten to plain text with section markers
+//   index_document_structure  → build section graph → overlay relevance → link concepts
+//   classify_document_content → ESLM classification with format-aware heuristics
+
+import polykit_studio_document
+import polymind_ingest
+import polymind_classify
+
+// ── Types ───────────────────────────────────────────────────────
+
+type DocumentFormat = enum {
+    Pdf,
+    Docx,
+    Pptx,
+    Xlsx,
+    Markdown,
+    PlainText,
+}
+
+type SectionType = enum {
+    Heading,
+    Paragraph,
+    Table,
+    Slide,
+    Cell,
+    Image,
+    Footer,
+    Metadata,
+}
+
+type DocumentSection = struct {
+    section_id: bytes(16),
+    section_type: SectionType,
+    depth: u8,
+    content_hash: bytes(32),
+    word_count: u32,
+    parent_section: option<bytes(16)>,
+}
+
+// ── Data ────────────────────────────────────────────────────────
+
+data DocumentCorpusEntry : mind v1 {
+    entry_id: bytes(16),
+    document_id: bytes(16),
+    user_id: bytes(16),
+    format: DocumentFormat,
+    content_hash: bytes(32),
+    text_hash: bytes(32),
+    structure_hash: bytes(32),
+    classification: u8,
+    section_count: u32,
+    total_word_count: u32,
+    embedding_hash: bytes(32),
+    concept_ids: list<bytes(16)>,
+    ingested_at: u64,
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/document
+    cortex {
+        obfuscate [user_id]
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
+
+data DocumentStructure : mind v1 {
+    document_id: bytes(16),
+    format: DocumentFormat,
+    sections: list<DocumentSection>,
+    section_count: u32,
+    total_word_count: u32,
+    max_depth: u8,
+    has_tables: bool,
+    has_images: bool,
+    parsed_at: u64,
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/document
+    cortex {
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
+
+data TextExtraction : mind v1 {
+    document_id: bytes(16),
+    text_hash: bytes(32),
+    word_count: u32,
+    section_markers: list<u32>,
+    extracted_at: u64,
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/document
+    cortex {
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
+
+data DocumentClassification : mind v1 {
+    document_id: bytes(16),
+    classification: u8,
+    confidence: f32,
+    format_hint: DocumentFormat,
+    eslm_label: string,
+    classified_at: u64,
+}
+    store kv
+    govern lex esn/global/org/polylabs/mind/document
+    cortex {
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
+
+// ── Streams ─────────────────────────────────────────────────────
+
+stream document_ingest_events: event<DocumentCorpusEntry>
+    | throttle 200/s burst 500
+
+stream document_classify_events: event<DocumentClassification>
+    | throttle 300/s burst 600
+
+// ── Circuits ────────────────────────────────────────────────────
+
+@guard(block_on: classification_exceeds_policy)
+circuit ingest_document(
+    user_id: bytes(16),
+    document_id: bytes(16),
+    content: bytes,
+    format: DocumentFormat,
+    classification_hint: u8,
+    signing_sk: bytes(4896),
+) -> DocumentCorpusEntry
+    profile poly_framework_sensitive
+    lex esn/global/org/polylabs/mind/document
+    precision C
+    povc true
+    observe metrics: [documents_ingested, ingest_latency_ms, corpus_growth_bytes, format_distribution]
+    monitor "ingest_latency" { ingest_latency_ms < 5000 }
+    invariant "content_nonempty" { len(content) > 0 }
+    invariant "user_authenticated" { user_id != zero_bytes(16) }
+    property safety "classification_at_least_hint" {
+        result.classification >= classification_hint
+    }
+    property liveness "entry_eventually_stored" {
+        eventually(eslite_exists("document_corpus", result.entry_id))
+    }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslite_insert, now, csprng, eslm_embed]
+{
+    let ts = now()
+    let content_hash = sha3_256(content)
+
+    let structure = parse_document_structure(document_id, content, format)
+    let text = extract_document_text(document_id, content, format)
+    let classification = classify_document_content(document_id, content, format, classification_hint)
+
+    let embedding = eslm_embed(text.text_content, 1024)
+    let embedding_hash = sha3_256(embedding)
+
+    let concepts = polymind_ingest::extract_concepts(text.text_content, embedding)
+    let concept_ids = map(concepts, |c| c.concept_id)
+    let _ref_count = polymind_ingest::link_references(document_id, concepts, signing_sk)
+
+    let entry_seed = concat(user_id, document_id, csprng(16), encode_u64(ts))
+    let entry_id = bit_slice(sha3_256(entry_seed), 0, 128)
+
+    let entry = DocumentCorpusEntry {
+        entry_id: entry_id,
+        document_id: document_id,
+        user_id: user_id,
+        format: format,
+        content_hash: content_hash,
+        text_hash: text.text_hash,
+        structure_hash: sha3_256(serialize(structure)),
+        classification: classification.classification,
+        section_count: structure.section_count,
+        total_word_count: text.word_count,
+        embedding_hash: embedding_hash,
+        concept_ids: concept_ids,
+        ingested_at: ts,
+    }
+
+    eslite_insert("document_corpus", entry_id, entry)
+    emit(document_ingest_events, entry)
+
+    polymind_classify::record_classification(document_id, classification.classification)
+
+    entry
+}
+
+circuit extract_text(
+    document_id: bytes(16),
+    content: bytes,
+    format: DocumentFormat,
+) -> TextExtraction
+    profile poly_framework_standard
+    lex esn/global/org/polylabs/mind/document
+    precision C
+    observe metrics: [text_extractions, extraction_latency_ms, words_extracted]
+    monitor "extraction_latency" { extraction_latency_ms < 2000 }
+    invariant "content_nonempty" { len(content) > 0 }
+    property safety "word_count_positive" { result.word_count > 0 || len(content) == 0 }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [now]
+{
+    extract_document_text(document_id, content, format)
+}
+
+circuit index_document_structure(
+    document_id: bytes(16),
+    structure: DocumentStructure,
+    embedding: bytes(1024),
+    signing_sk: bytes(4896),
+) -> u32
+    profile poly_framework_standard
+    lex esn/global/org/polylabs/mind/document
+    precision C
+    povc true
+    observe metrics: [structures_indexed, sections_linked, index_latency_ms]
+    monitor "index_latency" { index_latency_ms < 3000 }
+    invariant "structure_has_sections" { structure.section_count > 0 }
+    property safety "all_sections_indexed" {
+        result == structure.section_count
+    }
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [now, eslm_embed]
+{
+    let ts = now()
+    let indexed_count: u32 = 0
+
+    for section in structure.sections {
+        let section_embedding = eslm_embed(serialize(section), 1024)
+
+        graph_upsert(knowledge_corpus, SectionNode {
+            section_id: section.section_id,
+            document_id: document_id,
+            section_type: section.section_type,
+            depth: section.depth,
+            content_hash: section.content_hash,
+            word_count: section.word_count,
+        })
+
+        if section.parent_section.is_some() {
+            graph_connect(knowledge_corpus, section.parent_section.unwrap(), section.section_id, ContainsEdge {
+                depth_delta: 1,
+                linked_at: ts,
+            })
+        }
+
+        graph_connect(knowledge_corpus, document_id, section.section_id, HasSectionEdge {
+            section_type: section.section_type,
+            linked_at: ts,
+        })
+
+        overlay_set(knowledge_corpus, section.section_id, relevance_score, 800)
+        indexed_count = indexed_count + 1
+    }
+
+    let _sig = mldsa_sign(signing_sk, concat(document_id, encode_u32(indexed_count), encode_u64(ts)))
+    indexed_count
+}
+
+circuit classify_document_content(
+    document_id: bytes(16),
+    content: bytes,
+    format: DocumentFormat,
+    hint: u8,
+) -> DocumentClassification
+    profile poly_framework_standard
+    lex esn/global/org/polylabs/mind/document
+    precision B
+    povc true
+    observe metrics: [classifications, classification_overrides, format_classification_distribution]
+    invariant "valid_hint" { hint <= 5 }
+    property safety "classification_at_least_hint" { result.classification >= hint }
+    meters [compute_cycles]
+    wasm_abi [eslm_classify, now]
+{
+    let ts = now()
+    let text = polykit_studio_document::extract_text(content, format)
+    let eslm_result = eslm_classify(text, "sensitivity")
+    let eslm_label = eslm_classify_label(text, "document_type")
+
+    let format_boost: u8 = match format {
+        DocumentFormat::Pdf => 0,
+        DocumentFormat::Docx => 0,
+        DocumentFormat::Pptx => 1,
+        DocumentFormat::Xlsx => 1,
+        _ => 0,
+    }
+
+    let classification = if hint > eslm_result + format_boost {
+        hint
+    } else {
+        eslm_result + format_boost
+    }
+
+    let classification = if classification > 5 { 5 } else { classification }
+
+    let doc_class = DocumentClassification {
+        document_id: document_id,
+        classification: classification,
+        confidence: if classification == hint { 1.0 } else { 0.85 },
+        format_hint: format,
+        eslm_label: eslm_label,
+        classified_at: ts,
+    }
+
+    emit(document_classify_events, doc_class)
+    doc_class
+}
+
+// ── Internal helpers ────────────────────────────────────────────
+
+circuit parse_document_structure(
+    document_id: bytes(16),
+    content: bytes,
+    format: DocumentFormat,
+) -> DocumentStructure
+    profile poly_framework_standard
+    lex esn/global/org/polylabs/mind/document
+    precision C
+    wasm_abi [now, csprng]
+{
+    let ts = now()
+    let raw_sections = polykit_studio_document::parse_structure(content, format)
+    let sections = parallel for raw in raw_sections {
+        let sid = bit_slice(sha3_256(concat(document_id, raw.content, csprng(8))), 0, 128)
+        DocumentSection {
+            section_id: sid,
+            section_type: raw.section_type,
+            depth: raw.depth,
+            content_hash: sha3_256(raw.content),
+            word_count: count_words(raw.content),
+            parent_section: raw.parent_id,
+        }
+    }
+
+    let max_depth = max(sections, |s| s.depth)
+    let has_tables = any(sections, |s| s.section_type == SectionType::Table)
+    let has_images = any(sections, |s| s.section_type == SectionType::Image)
+    let total_words = sum(sections, |s| s.word_count)
+
+    DocumentStructure {
+        document_id: document_id,
+        format: format,
+        sections: sections,
+        section_count: len(sections),
+        total_word_count: total_words,
+        max_depth: max_depth,
+        has_tables: has_tables,
+        has_images: has_images,
+        parsed_at: ts,
+    }
+}
+
+circuit extract_document_text(
+    document_id: bytes(16),
+    content: bytes,
+    format: DocumentFormat,
+) -> TextExtraction
+    profile poly_framework_standard
+    lex esn/global/org/polylabs/mind/document
+    precision C
+    wasm_abi [now]
+{
+    let ts = now()
+    let text_content = polykit_studio_document::extract_text(content, format)
+    let section_offsets = polykit_studio_document::extract_section_offsets(content, format)
+
+    TextExtraction {
+        document_id: document_id,
+        text_hash: sha3_256(text_content),
+        word_count: count_words(text_content),
+        section_markers: section_offsets,
+        extracted_at: ts,
+    }
+}
+
+// ── Test & Verification ─────────────────────────────────────────
+
+test golden "ingest_pdf_document" {
+    input {
+        user_id: bytes(16, 0xAA)
+        document_id: bytes(16, 0xBB)
+        content: bytes(4096, 0xCC)
+        format: DocumentFormat::Pdf
+        classification_hint: 0
+        signing_sk: bytes(4896, 0x11)
+    }
+    assert {
+        result.entry_id != zero_bytes(16)
+        result.document_id == bytes(16, 0xBB)
+        result.format == DocumentFormat::Pdf
+        result.content_hash == sha3_256(bytes(4096, 0xCC))
+        result.classification >= 0
+        result.section_count > 0
+        result.total_word_count > 0
+        result.ingested_at > 0
+    }
+}
+
+test golden "extract_text_from_docx" {
+    input {
+        document_id: bytes(16, 0xBB)
+        content: bytes(2048, 0xDD)
+        format: DocumentFormat::Docx
+    }
+    assert {
+        result.document_id == bytes(16, 0xBB)
+        result.text_hash != zero_bytes(32)
+        result.word_count > 0
+        result.extracted_at > 0
+    }
+}
+
+test golden "classify_xlsx_sensitive" {
+    input {
+        document_id: bytes(16, 0xBB)
+        content: bytes(1024, 0xEE)
+        format: DocumentFormat::Xlsx
+        hint: 2
+    }
+    assert {
+        result.document_id == bytes(16, 0xBB)
+        result.classification >= 2
+        result.format_hint == DocumentFormat::Xlsx
+        result.classified_at > 0
+    }
+}
+
+test golden "index_structure_sections" {
+    input {
+        document_id: bytes(16, 0xBB)
+        structure: DocumentStructure {
+            document_id: bytes(16, 0xBB),
+            format: DocumentFormat::Docx,
+            sections: [
+                DocumentSection {
+                    section_id: bytes(16, 0x01),
+                    section_type: SectionType::Heading,
+                    depth: 0,
+                    content_hash: sha3_256(bytes("Introduction")),
+                    word_count: 1,
+                    parent_section: none,
+                },
+                DocumentSection {
+                    section_id: bytes(16, 0x02),
+                    section_type: SectionType::Paragraph,
+                    depth: 1,
+                    content_hash: sha3_256(bytes("Body text here")),
+                    word_count: 3,
+                    parent_section: some(bytes(16, 0x01)),
+                },
+            ],
+            section_count: 2,
+            total_word_count: 4,
+            max_depth: 1,
+            has_tables: false,
+            has_images: false,
+            parsed_at: 1000,
+        }
+        embedding: bytes(1024, 0x55)
+        signing_sk: bytes(4896, 0x11)
+    }
+    assert {
+        result == 2
+    }
+}
+
+kat_vector "sha3_256_document_content" {
+    function: "sha3_256"
+    input: bytes("")
+    expected: hex("a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a")
+}
+
+fuzz_target "ingest_document_fuzz" {
+    inputs {
+        content: bytes(1..65536)
+        format: u8(0..5)
+        classification_hint: u8(0..5)
+        signing_sk: bytes(4896)
+    }
+    assert {
+        no_panic
+    }
+}
+
+fuzz_target "classify_document_fuzz" {
+    inputs {
+        content: bytes(1..65536)
+        format: u8(0..5)
+        hint: u8(0..5)
+    }
+    assert {
+        no_panic
+    }
+}
