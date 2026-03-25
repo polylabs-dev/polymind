@@ -108,7 +108,7 @@ circuit polymind_platform_health(
     povc true
     constant_time true
     esz_emit "verify/polymind_platform_health.esz"
-    li_feed full_escir true, optimized_ir true, optimization_metadata true
+    li_feed full_flir true, optimized_ir true, optimization_metadata true
     observe metrics: [health_snapshots_emitted, health_snapshots_rejected, mind_anomalies_detected]
     monitor "inference_latency" { inference_latency_avg_ms < 2000 }
     monitor "health_emission_rate" { health_snapshots_emitted < 60/hr }

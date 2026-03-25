@@ -4,7 +4,7 @@
 **Date**: February 2026
 **Platform**: eStream v0.9.1
 **Upstream**: PolyKit v0.3.0, eStream scatter-cas, graph/DAG constructs
-**Build Pipeline**: FastLang (.fl) → ESCIR → Rust/WASM codegen → .escd
+**Build Pipeline**: FastLang (.fl) → FLIR → Rust/WASM codegen → .escd
 **Status**: Concept
 
 ---
@@ -20,7 +20,7 @@ Poly Mind is a personal ESLM corpus and digital legacy system. It builds a priva
 | Knowledge model | Flat corpus index | `graph knowledge_corpus` with typed overlays |
 | Legacy governance | Threshold config blob | `dag legacy_governance` with acyclic enforcement + ML-DSA-87 signing |
 | Ingestion state | Implicit | `state_machine ingestion_lifecycle` with classification propagation |
-| Circuit format | ESCIR YAML (`circuit.escir.yaml`) | FastLang `.fl` with PolyKit profiles |
+| Circuit format | FLIR YAML (`circuit.flir.yaml`) | FastLang `.fl` with PolyKit profiles |
 | RBAC | Per-circuit annotations | eStream `rbac.fl` composed via PolyKit |
 | Platform | eStream v0.8.1 | eStream v0.9.1 |
 

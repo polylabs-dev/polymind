@@ -10,7 +10,7 @@
 | 002 | ESLM persistent SSM state management | Open | P0 |
 | 003 | Personal corpus ingestion pipeline | Open | P0 |
 | 004 | Classification-aware storage (PUBLIC through SOVEREIGN) | Open | P0 |
-| 005 | Design ESCIR ingestion + sync circuits | Open | P0 |
+| 005 | Design FLIR ingestion + sync circuits | Open | P0 |
 | 006 | On-device inference engine (Apple Neural Engine, NPU, AVX-512) | Open | P0 |
 | 007 | Scatter-stored state checkpoints | Open | P0 |
 | 008 | Tauri desktop app | Open | P1 |
@@ -34,7 +34,7 @@
 | 016 | Graduated transfer schedule (classification-gated) | Open | P1 |
 | 017 | Trigger verification (death certificate, inactivity) | Open | P1 |
 | 018 | SOVEREIGN/EPHEMERAL auto-purge on trigger | Open | P1 |
-| 019 | Design ESCIR legacy governance circuit | Open | P1 |
+| 019 | Design FLIR legacy governance circuit | Open | P1 |
 
 ## Epic 04: Advanced
 
