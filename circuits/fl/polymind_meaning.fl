@@ -1,0 +1,268 @@
+/// Spec: specs/POLYMIND_CE_APP_GRAPH_SPEC.md §2-4
+/// PolyMind CE Meaning — 3 meaning domains, noise filter with suppression +
+/// amplification rules, 3 SME panels, and a top-level CE registration
+/// orchestrator.
+
+lex polylabs/polymind/ce
+
+@target software
+@codegen_targets ["wasm", "rust"]
+
+import "core/intelligence/cortex/cortex_meaning.fl" {
+    MeaningDomain, MeaningSignal, SignalType,
+    NoiseFilter, NoiseRule, NoiseAction,
+    SmePanel, SmeTrigger,
+    CeRegistration,
+    ce_register_domain, ce_register_noise_filter,
+    ce_register_sme_panel, ce_finalize_registration,
+}
+
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const POLYMIND_CE_LEX: string = "polylabs/polymind"
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §1  Meaning Domains
+// ═══════════════════════════════════════════════════════════════════════════════
+
+circuit knowledge_corpus_growth_domain() -> MeaningDomain
+    lex polylabs/polymind/ce
+    @status production  @precision C
+{
+    MeaningDomain {
+        name: "knowledge/corpus_growth",
+        lex: POLYMIND_CE_LEX,
+        signals: [
+            MeaningSignal { name: "ingest_velocity", signal_type: SignalType::Gauge as u8,
+                unit: "docs/hour", description: "Documents ingested per hour (rolling 24h)" },
+            MeaningSignal { name: "knowledge_coverage", signal_type: SignalType::Gauge as u8,
+                unit: "percent", description: "Declared topics with >=10 corpus entries" },
+            MeaningSignal { name: "corpus_diversity_index", signal_type: SignalType::Gauge as u8,
+                unit: "bits", description: "Shannon entropy across classification domains" },
+            MeaningSignal { name: "stale_entry_ratio", signal_type: SignalType::Gauge as u8,
+                unit: "ratio", description: "Entries not referenced in >90 days" },
+        ],
+    }
+}
+
+circuit knowledge_query_quality_domain() -> MeaningDomain
+    lex polylabs/polymind/ce
+    @status production  @precision C
+{
+    MeaningDomain {
+        name: "knowledge/query_quality",
+        lex: POLYMIND_CE_LEX,
+        signals: [
+            MeaningSignal { name: "retrieval_precision", signal_type: SignalType::Gauge as u8,
+                unit: "score", description: "Top-5 retrieval relevance (feedback + auto-eval)" },
+            MeaningSignal { name: "hallucination_rate", signal_type: SignalType::Counter as u8,
+                unit: "per_1000_queries", description: "Ungrounded answers per 1000 queries" },
+            MeaningSignal { name: "query_latency_p99_ms", signal_type: SignalType::Gauge as u8,
+                unit: "ms", description: "99th percentile query response latency" },
+            MeaningSignal { name: "eslm_confidence_mean", signal_type: SignalType::Gauge as u8,
+                unit: "score", description: "Mean ESLM confidence across queries" },
+        ],
+    }
+}
+
+circuit knowledge_legacy_governance_domain() -> MeaningDomain
+    lex polylabs/polymind/ce
+    @status production  @precision C
+{
+    MeaningDomain {
+        name: "knowledge/legacy_governance",
+        lex: POLYMIND_CE_LEX,
+        signals: [
+            MeaningSignal { name: "guardian_transfer_patterns", signal_type: SignalType::Event as u8,
+                unit: "event", description: "Guardian designation changes, dead-man activations" },
+            MeaningSignal { name: "digital_estate_health", signal_type: SignalType::Gauge as u8,
+                unit: "score", description: "Beneficiary coverage, artifact freshness, policy currency" },
+            MeaningSignal { name: "legacy_artifact_count", signal_type: SignalType::Gauge as u8,
+                unit: "count", description: "Total time-locked and released legacy artifacts" },
+            MeaningSignal { name: "policy_violation_count", signal_type: SignalType::Counter as u8,
+                unit: "count", description: "Guardian policy violations per evaluation cycle" },
+        ],
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §2  Noise Filter
+// ═══════════════════════════════════════════════════════════════════════════════
+
+circuit polymind_noise_filter() -> NoiseFilter
+    lex polylabs/polymind/ce
+    @status production  @precision C
+{
+    NoiseFilter {
+        lex: POLYMIND_CE_LEX,
+        rules: [
+            // ── Suppression ──
+            NoiseRule { name: "suppress_reindex",
+                signal: "ingest_velocity", pattern: "spike_during_reindex_window",
+                action: NoiseAction::Suppress as u8,
+                reason: "Re-indexing is maintenance, not organic growth" },
+            NoiseRule { name: "suppress_cache_refresh",
+                signal: "query_latency_p99_ms", pattern: "transient_spike_during_eslm_warmup",
+                action: NoiseAction::Suppress as u8,
+                reason: "Cache refresh expected after model updates" },
+            NoiseRule { name: "suppress_bulk_import",
+                signal: "corpus_diversity_index", pattern: "drop_during_single_source_bulk",
+                action: NoiseAction::Suppress as u8,
+                reason: "Diversity recovers as import is classified" },
+            // ── Amplification ──
+            NoiseRule { name: "amplify_knowledge_gap",
+                signal: "knowledge_coverage", pattern: "below_60pct_any_topic",
+                action: NoiseAction::Amplify as u8,
+                reason: "Corpus blind spot requiring user attention" },
+            NoiseRule { name: "amplify_guardian_violation",
+                signal: "policy_violation_count", pattern: "any_increment",
+                action: NoiseAction::Amplify as u8,
+                reason: "Guardian policy violations are always actionable" },
+            NoiseRule { name: "amplify_hallucination_spike",
+                signal: "hallucination_rate", pattern: "exceeds_50_per_1000",
+                action: NoiseAction::Amplify as u8,
+                reason: "Retrieval pipeline degradation requires investigation" },
+        ],
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §3  SME Panels
+// ═══════════════════════════════════════════════════════════════════════════════
+
+circuit knowledge_graph_quality_panel() -> SmePanel
+    lex polylabs/polymind/ce
+    @status production  @precision C
+{
+    SmePanel {
+        name: "knowledge_graph_quality",
+        lex: POLYMIND_CE_LEX,
+        observed_signals: ["corpus_diversity_index", "stale_entry_ratio", "knowledge_coverage"],
+        trigger: SmeTrigger::ScheduledOrThreshold as u8,
+        schedule_interval_hours: 168,
+        threshold_condition: "knowledge_coverage drops >10% in 24h",
+        output_fields: ["quality_score_0_100", "reclassification_actions", "orphan_node_report"],
+    }
+}
+
+circuit eslm_training_effectiveness_panel() -> SmePanel
+    lex polylabs/polymind/ce
+    @status production  @precision C
+{
+    SmePanel {
+        name: "eslm_training_effectiveness",
+        lex: POLYMIND_CE_LEX,
+        observed_signals: ["eslm_confidence_mean", "retrieval_precision", "hallucination_rate"],
+        trigger: SmeTrigger::EpochOrThreshold as u8,
+        schedule_interval_hours: 0,
+        threshold_condition: "hallucination_rate spike",
+        output_fields: ["convergence_assessment", "corpus_curation_actions", "rollback_recommendation"],
+    }
+}
+
+circuit legacy_governance_compliance_panel() -> SmePanel
+    lex polylabs/polymind/ce
+    @status production  @precision C
+{
+    SmePanel {
+        name: "legacy_governance_compliance",
+        lex: POLYMIND_CE_LEX,
+        observed_signals: ["guardian_transfer_patterns", "digital_estate_health",
+                           "policy_violation_count", "legacy_artifact_count"],
+        trigger: SmeTrigger::ScheduledOrEvent as u8,
+        schedule_interval_hours: 720,
+        threshold_condition: "guardian designation change",
+        output_fields: ["estate_readiness_0_100", "policy_gap_analysis", "beneficiary_coverage_report"],
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §4  CE Registration Orchestrator
+// ═══════════════════════════════════════════════════════════════════════════════
+
+circuit polymind_register_ce(product_lex: string) -> bool
+    lex polylabs/polymind/ce
+    @status production
+    @precision B
+    @attested true
+    observe metrics: [ce_domain_count, ce_panel_count, ce_noise_rule_count]
+    meters [compute_cycles]
+{
+    let reg = CeRegistration::new(product_lex)
+
+    let reg = ce_register_domain(reg, knowledge_corpus_growth_domain())
+    let reg = ce_register_domain(reg, knowledge_query_quality_domain())
+    let reg = ce_register_domain(reg, knowledge_legacy_governance_domain())
+
+    let reg = ce_register_noise_filter(reg, polymind_noise_filter())
+
+    let reg = ce_register_sme_panel(reg, knowledge_graph_quality_panel())
+    let reg = ce_register_sme_panel(reg, eslm_training_effectiveness_panel())
+    let reg = ce_register_sme_panel(reg, legacy_governance_compliance_panel())
+
+    ce_finalize_registration(reg)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §5  Golden Tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+circuit test_corpus_growth_domain_signals()
+    lex polylabs/polymind/ce/test
+{
+    let domain = knowledge_corpus_growth_domain()
+    assert domain.name == "knowledge/corpus_growth"
+    assert domain.signals.len() == 4
+    assert domain.signals[0].name == "ingest_velocity"
+}
+
+#[test]
+circuit test_query_quality_domain_signals()
+    lex polylabs/polymind/ce/test
+{
+    let domain = knowledge_query_quality_domain()
+    assert domain.name == "knowledge/query_quality"
+    assert domain.signals.len() == 4
+    assert domain.signals[1].name == "hallucination_rate"
+}
+
+#[test]
+circuit test_legacy_governance_domain_signals()
+    lex polylabs/polymind/ce/test
+{
+    let domain = knowledge_legacy_governance_domain()
+    assert domain.name == "knowledge/legacy_governance"
+    assert domain.signals.len() == 4
+    assert domain.signals[0].name == "guardian_transfer_patterns"
+}
+
+#[test]
+circuit test_noise_filter_rules()
+    lex polylabs/polymind/ce/test
+{
+    let filter = polymind_noise_filter()
+    assert filter.rules.len() == 6
+    assert filter.rules[0].action == NoiseAction::Suppress as u8
+    assert filter.rules[3].action == NoiseAction::Amplify as u8
+}
+
+#[test]
+circuit test_sme_panels()
+    lex polylabs/polymind/ce/test
+{
+    let kg_panel = knowledge_graph_quality_panel()
+    assert kg_panel.observed_signals.len() == 3
+    let eslm_panel = eslm_training_effectiveness_panel()
+    assert eslm_panel.observed_signals.len() == 3
+    let legacy_panel = legacy_governance_compliance_panel()
+    assert legacy_panel.observed_signals.len() == 4
+}
+
+#[test]
+circuit test_polymind_register_ce()
+    lex polylabs/polymind/ce/test
+{
+    let result = polymind_register_ce("polylabs/polymind")
+    assert result == true, "CE registration should succeed"
+}

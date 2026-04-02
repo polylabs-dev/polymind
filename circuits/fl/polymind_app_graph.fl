@@ -1,0 +1,494 @@
+/// Spec: specs/POLYMIND_CE_APP_GRAPH_SPEC.md
+/// PolyMind App Graph — 13 ModuleNode definitions composing the personal ESLM
+/// corpus + digital legacy product. Registers intra-graph REQUIRES edges and
+/// cross-graph BRIDGE_TO edges to PolyKit (ESLM classify) and PolyDocs
+/// (document ingest).
+
+lex polylabs/polymind
+
+@target software
+@codegen_targets ["wasm", "rust", "wasm-browser"]
+
+import "core/deployment/module_stratum.fl" {
+    ModuleNode, ModuleEdge, SemVer, CompilationReceipt, ResourceBudget8D,
+    CsrStorage, ModuleType, AperturePartition, ModuleState, RolloutState,
+    PersistencePolicy, OfflineCachePolicy, EntitlementTier, EnforcementMode,
+    SLATier, EDGE_REQUIRES, EDGE_BRIDGE_TO,
+    module_graph_add_module, module_graph_add_edge,
+    graph_add_node, graph_add_edge,
+}
+
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const POLYMIND_VERSION_MAJOR: u32 = 0
+const POLYMIND_VERSION_MINOR: u32 = 1
+const POLYMIND_VERSION_PATCH: u32 = 0
+const POLYMIND_APP_LEX: string = "polylabs/polymind"
+const POLYMIND_VERSION_STR: string = "0.1.0"
+const POLYMIND_MODULE_COUNT: u64 = 13
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Internal helper — common ModuleNode construction
+// ═══════════════════════════════════════════════════════════════════════════════
+
+circuit make_polymind_module(
+    name: string, partition: u8, sla: u8, budget: ResourceBudget8D
+) -> ModuleNode
+    lex polylabs/polymind
+    @status production
+    @precision D
+{
+    let ver = SemVer { major: POLYMIND_VERSION_MAJOR, minor: POLYMIND_VERSION_MINOR,
+        patch: POLYMIND_VERSION_PATCH, pre_release: "" }
+    let receipt = CompilationReceipt {
+        source_hash: bytes(32, 0), compiler_version: ver,
+        output_hash: bytes(32, 0), prime_device_id: Option::None,
+        compilation_timestamp: 0, reproducible_verified: false,
+        receipt_signature: bytes(4627, 0),
+    }
+
+    ModuleNode {
+        name: name,
+        version_major: POLYMIND_VERSION_MAJOR, version_minor: POLYMIND_VERSION_MINOR,
+        version_patch: POLYMIND_VERSION_PATCH, version_pre: "",
+        module_type: ModuleType::SmartCircuit as u8,
+        content_hash: bytes(32, 0), signature_chain: bytes(0),
+        aperture_partition: partition,
+        role_set: ["User", "Admin", "Guardian"],
+        required_entitlement: EntitlementTier::Pro as u8,
+        classification_domains: [], max_classification_level: 0,
+        compilation_receipt: receipt,
+        source_hash: bytes(32, 0),
+        compiler_version_major: POLYMIND_VERSION_MAJOR,
+        compiler_version_minor: POLYMIND_VERSION_MINOR,
+        prime_device_id: bytes(0), reproducible_verified: false,
+        resource_budget: budget,
+        budget_enforcement_mode: EnforcementMode::Soft as u8,
+        state: ModuleState::Active as u8,
+        rollout_state: RolloutState::Canary as u8,
+        canary_target: Option::None,
+        persistence: PersistencePolicy::Persistent as u8,
+        offline_cache_policy: OfflineCachePolicy::CacheAndVerify as u8,
+        max_staleness_seconds: 3600, sla_tier: sla,
+        preferred_locality: "edge",
+        created_at_ms: 0, updated_at_ms: 0,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §1  Module Definitions — 13 ModuleNodes
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── polymind_ingest ── content ingestion pipeline ────────────────────────────
+
+circuit polymind_ingest_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("polymind_ingest", AperturePartition::Backend as u8,
+        SLATier::Premium as u8,
+        ResourceBudget8D { execution: 50000, hash_ops: 2000, bandwidth: 20000,
+            storage: 100000, observe_events: 500, proofs: 50, consensus: 10, memory: 33554432 })
+}
+
+// ── polymind_document_ingest ── document-specific ingestion via PolyDocs ────
+
+circuit polymind_document_ingest_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("polymind_document_ingest", AperturePartition::Backend as u8,
+        SLATier::Premium as u8,
+        ResourceBudget8D { execution: 40000, hash_ops: 1500, bandwidth: 30000,
+            storage: 80000, observe_events: 400, proofs: 30, consensus: 10, memory: 67108864 })
+}
+
+// ── polymind_classify ── topic, domain, sensitivity classification ───────────
+
+circuit polymind_classify_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("polymind_classify", AperturePartition::Backend as u8,
+        SLATier::Standard as u8,
+        ResourceBudget8D { execution: 20000, hash_ops: 500, bandwidth: 5000,
+            storage: 10000, observe_events: 300, proofs: 20, consensus: 5, memory: 16777216 })
+}
+
+// ── polymind_eslm ── on-device ESLM training + inference ─────────────────────
+
+circuit polymind_eslm_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("polymind_eslm", AperturePartition::Backend as u8,
+        SLATier::Premium as u8,
+        ResourceBudget8D { execution: 200000, hash_ops: 1000, bandwidth: 10000,
+            storage: 50000, observe_events: 800, proofs: 100, consensus: 20, memory: 134217728 })
+}
+
+// ── polymind_query ── natural-language retrieval + synthesis ──────────────────
+
+circuit polymind_query_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("polymind_query", AperturePartition::Head as u8,
+        SLATier::Premium as u8,
+        ResourceBudget8D { execution: 100000, hash_ops: 2000, bandwidth: 15000,
+            storage: 20000, observe_events: 1000, proofs: 50, consensus: 10, memory: 67108864 })
+}
+
+// ── polymind_insight ── pattern recognition, knowledge gaps ──────────────────
+
+circuit polymind_insight_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("polymind_insight", AperturePartition::Backend as u8,
+        SLATier::Standard as u8,
+        ResourceBudget8D { execution: 30000, hash_ops: 800, bandwidth: 5000,
+            storage: 15000, observe_events: 400, proofs: 30, consensus: 5, memory: 33554432 })
+}
+
+// ── polymind_rbac ── field-level access control ──────────────────────────────
+
+circuit polymind_rbac_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("polymind_rbac", AperturePartition::Shared as u8,
+        SLATier::Standard as u8,
+        ResourceBudget8D { execution: 5000, hash_ops: 200, bandwidth: 1000,
+            storage: 2000, observe_events: 100, proofs: 10, consensus: 5, memory: 4096 })
+}
+
+// ── polymind_metering ── per-user usage metering ─────────────────────────────
+
+circuit polymind_metering_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("polymind_metering", AperturePartition::Backend as u8,
+        SLATier::Standard as u8,
+        ResourceBudget8D { execution: 3000, hash_ops: 100, bandwidth: 500,
+            storage: 5000, observe_events: 200, proofs: 10, consensus: 5, memory: 4096 })
+}
+
+// ── polymind_platform_health ── health probes, corpus integrity ──────────────
+
+circuit polymind_platform_health_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("polymind_platform_health", AperturePartition::Shared as u8,
+        SLATier::Standard as u8,
+        ResourceBudget8D { execution: 3000, hash_ops: 100, bandwidth: 500,
+            storage: 1000, observe_events: 300, proofs: 5, consensus: 2, memory: 4096 })
+}
+
+// ── polymind_guardian ── guardian designation + transfer protocols ────────────
+
+circuit polymind_guardian_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("polymind_guardian", AperturePartition::Backend as u8,
+        SLATier::Premium as u8,
+        ResourceBudget8D { execution: 10000, hash_ops: 500, bandwidth: 3000,
+            storage: 5000, observe_events: 200, proofs: 50, consensus: 20, memory: 8192 })
+}
+
+// ── polymind_legacy ── digital estate assembly + time-locked releases ────────
+
+circuit polymind_legacy_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("polymind_legacy", AperturePartition::Backend as u8,
+        SLATier::Premium as u8,
+        ResourceBudget8D { execution: 20000, hash_ops: 1000, bandwidth: 10000,
+            storage: 50000, observe_events: 300, proofs: 80, consensus: 30, memory: 16777216 })
+}
+
+// ── knowledge_graph ── Stratum CSR property graph ────────────────────────────
+
+circuit knowledge_graph_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("knowledge_graph", AperturePartition::Backend as u8,
+        SLATier::Premium as u8,
+        ResourceBudget8D { execution: 80000, hash_ops: 3000, bandwidth: 15000,
+            storage: 200000, observe_events: 600, proofs: 100, consensus: 20, memory: 67108864 })
+}
+
+// ── legacy_dag ── Merkle-linked DAG for legacy provenance ────────────────────
+
+circuit legacy_dag_module() -> ModuleNode
+    lex polylabs/polymind  @status production  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_polymind_module("legacy_dag", AperturePartition::Backend as u8,
+        SLATier::Premium as u8,
+        ResourceBudget8D { execution: 15000, hash_ops: 2000, bandwidth: 5000,
+            storage: 100000, observe_events: 200, proofs: 80, consensus: 20, memory: 16777216 })
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §2  Graph Registration (13 modules)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+circuit polymind_app_graph_register(graph: CsrStorage) -> CsrStorage
+    lex polylabs/polymind
+    @status production
+    @precision B
+    @attested true
+    invariant "capacity" { graph.num_nodes + POLYMIND_MODULE_COUNT as u32 <= 4096 }
+    observe metrics: [polymind_module_count, polymind_edge_count, register_latency_ns]
+    meters [compute_cycles, memory_bytes]
+{
+    let (g, id_ingest)       = module_graph_add_module(graph, polymind_ingest_module())
+    let (g, id_doc_ingest)   = module_graph_add_module(g, polymind_document_ingest_module())
+    let (g, id_classify)     = module_graph_add_module(g, polymind_classify_module())
+    let (g, id_eslm)         = module_graph_add_module(g, polymind_eslm_module())
+    let (g, id_query)        = module_graph_add_module(g, polymind_query_module())
+    let (g, id_insight)      = module_graph_add_module(g, polymind_insight_module())
+    let (g, id_rbac)         = module_graph_add_module(g, polymind_rbac_module())
+    let (g, id_metering)     = module_graph_add_module(g, polymind_metering_module())
+    let (g, id_health)       = module_graph_add_module(g, polymind_platform_health_module())
+    let (g, id_guardian)     = module_graph_add_module(g, polymind_guardian_module())
+    let (g, id_legacy)       = module_graph_add_module(g, polymind_legacy_module())
+    let (g, id_kg)           = module_graph_add_module(g, knowledge_graph_module())
+    let (g, id_dag)          = module_graph_add_module(g, legacy_dag_module())
+
+    let ver = POLYMIND_VERSION_STR
+    let vc = ">=" ++ POLYMIND_VERSION_STR
+
+    // polymind_ingest -> polymind_classify, knowledge_graph
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_ingest", source_version: ver,
+        target_module: "polymind_classify", target_version_constraint: vc, metadata: bytes(0),
+    }, id_ingest, id_classify)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_ingest", source_version: ver,
+        target_module: "knowledge_graph", target_version_constraint: vc, metadata: bytes(0),
+    }, id_ingest, id_kg)
+
+    // polymind_document_ingest -> polymind_ingest, polymind_classify
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_document_ingest", source_version: ver,
+        target_module: "polymind_ingest", target_version_constraint: vc, metadata: bytes(0),
+    }, id_doc_ingest, id_ingest)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_document_ingest", source_version: ver,
+        target_module: "polymind_classify", target_version_constraint: vc, metadata: bytes(0),
+    }, id_doc_ingest, id_classify)
+
+    // polymind_eslm -> polymind_classify, knowledge_graph
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_eslm", source_version: ver,
+        target_module: "polymind_classify", target_version_constraint: vc, metadata: bytes(0),
+    }, id_eslm, id_classify)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_eslm", source_version: ver,
+        target_module: "knowledge_graph", target_version_constraint: vc, metadata: bytes(0),
+    }, id_eslm, id_kg)
+
+    // polymind_query -> polymind_classify, polymind_eslm, knowledge_graph
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_query", source_version: ver,
+        target_module: "polymind_classify", target_version_constraint: vc, metadata: bytes(0),
+    }, id_query, id_classify)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_query", source_version: ver,
+        target_module: "polymind_eslm", target_version_constraint: vc, metadata: bytes(0),
+    }, id_query, id_eslm)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_query", source_version: ver,
+        target_module: "knowledge_graph", target_version_constraint: vc, metadata: bytes(0),
+    }, id_query, id_kg)
+
+    // polymind_insight -> knowledge_graph, polymind_classify
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_insight", source_version: ver,
+        target_module: "knowledge_graph", target_version_constraint: vc, metadata: bytes(0),
+    }, id_insight, id_kg)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_insight", source_version: ver,
+        target_module: "polymind_classify", target_version_constraint: vc, metadata: bytes(0),
+    }, id_insight, id_classify)
+
+    // polymind_guardian -> polymind_rbac, polymind_legacy
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_guardian", source_version: ver,
+        target_module: "polymind_rbac", target_version_constraint: vc, metadata: bytes(0),
+    }, id_guardian, id_rbac)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_guardian", source_version: ver,
+        target_module: "polymind_legacy", target_version_constraint: vc, metadata: bytes(0),
+    }, id_guardian, id_legacy)
+
+    // polymind_legacy -> legacy_dag, polymind_rbac, knowledge_graph
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_legacy", source_version: ver,
+        target_module: "legacy_dag", target_version_constraint: vc, metadata: bytes(0),
+    }, id_legacy, id_dag)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_legacy", source_version: ver,
+        target_module: "polymind_rbac", target_version_constraint: vc, metadata: bytes(0),
+    }, id_legacy, id_rbac)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_legacy", source_version: ver,
+        target_module: "knowledge_graph", target_version_constraint: vc, metadata: bytes(0),
+    }, id_legacy, id_kg)
+
+    // polymind_metering -> polymind_rbac
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_metering", source_version: ver,
+        target_module: "polymind_rbac", target_version_constraint: vc, metadata: bytes(0),
+    }, id_metering, id_rbac)
+
+    // polymind_platform_health -> polymind_metering, polymind_rbac
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_platform_health", source_version: ver,
+        target_module: "polymind_metering", target_version_constraint: vc, metadata: bytes(0),
+    }, id_health, id_metering)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "polymind_platform_health", source_version: ver,
+        target_module: "polymind_rbac", target_version_constraint: vc, metadata: bytes(0),
+    }, id_health, id_rbac)
+
+    g
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §3  Cross-Graph Bridge Edges
+// ═══════════════════════════════════════════════════════════════════════════════
+
+data PolymindBridgeEdgeData : polylabs/polymind/bridge v1 {
+    source_lex: string,
+    source_module: string,
+    target_lex: string,
+    target_module: string,
+    bridge_type: string,
+    timestamp_ms: u64,
+}
+
+circuit polymind_register_bridge_edges(graph: CsrStorage) -> CsrStorage
+    lex polylabs/polymind
+    @status production
+    @precision B
+    @attested true
+    observe metrics: [bridge_edge_count]
+    meters [compute_cycles]
+{
+    let id_classify = find_polymind_module_id(graph, "polymind_classify")
+    let id_doc_ingest = find_polymind_module_id(graph, "polymind_document_ingest")
+
+    let g = graph
+
+    // BRIDGE_TO: polymind_classify -> PolyKit eslm_classify
+    if id_classify != 0xFFFFFFFF as u32 {
+        let bridge_polykit = serialize(PolymindBridgeEdgeData {
+            source_lex: POLYMIND_APP_LEX, source_module: "polymind_classify",
+            target_lex: "polylabs/polykit", target_module: "polykit_eslm_classify",
+            bridge_type: "eslm_classification", timestamp_ms: 0,
+        }) as bytes
+        let (g2, bid1) = graph_add_node(g, 0xB0, bridge_polykit)
+        g = graph_add_edge(g2, id_classify, bid1, EDGE_BRIDGE_TO, bridge_polykit)
+    }
+
+    // BRIDGE_TO: polymind_document_ingest -> PolyDocs parser
+    if id_doc_ingest != 0xFFFFFFFF as u32 {
+        let bridge_polydocs = serialize(PolymindBridgeEdgeData {
+            source_lex: POLYMIND_APP_LEX, source_module: "polymind_document_ingest",
+            target_lex: "polylabs/polydocs", target_module: "polydocs_parser",
+            bridge_type: "document_parsing", timestamp_ms: 0,
+        }) as bytes
+        let (g2, bid2) = graph_add_node(g, 0xB0, bridge_polydocs)
+        g = graph_add_edge(g2, id_doc_ingest, bid2, EDGE_BRIDGE_TO, bridge_polydocs)
+    }
+
+    g
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Internal helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+circuit find_polymind_module_id(graph: CsrStorage, name: string) -> u32
+    lex polylabs/polymind
+    @status production
+    @precision D
+{
+    for i in 0..graph.num_nodes {
+        let node_data = graph.node_data[i]
+        let module = deserialize(node_data) as ModuleNode
+        if module.name == name {
+            return i
+        }
+    }
+    0xFFFFFFFF
+}
+
+// ── Metrics Store ──────────────────────────────────────────────────────────────
+
+store series polymind_app_graph_metrics
+    lex polylabs/polymind/metrics
+{
+    operation: string key
+    module_count: u32
+    edge_count: u32
+    register_latency_ns: u64
+    bridge_edge_count: u32
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §4  Golden Tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+circuit test_polymind_app_graph_register()
+    lex polylabs/polymind/test
+{
+    let empty = CsrStorage::new(4096)
+    let g = polymind_app_graph_register(empty)
+    assert g.num_nodes == 13, "expected 13 modules"
+    assert g.num_edges >= 19, "expected at least 19 REQUIRES edges"
+}
+
+#[test]
+circuit test_polymind_bridge_edges()
+    lex polylabs/polymind/test
+{
+    let empty = CsrStorage::new(4096)
+    let g = polymind_app_graph_register(empty)
+    let g = polymind_register_bridge_edges(g)
+    assert g.num_nodes == 15, "expected 13 modules + 2 bridge nodes"
+}
+
+#[test]
+circuit test_find_polymind_module_id()
+    lex polylabs/polymind/test
+{
+    let empty = CsrStorage::new(4096)
+    let g = polymind_app_graph_register(empty)
+    let id = find_polymind_module_id(g, "polymind_eslm")
+    assert id != 0xFFFFFFFF, "polymind_eslm should be found"
+    let missing = find_polymind_module_id(g, "nonexistent")
+    assert missing == 0xFFFFFFFF, "nonexistent module should return sentinel"
+}
+
+#[test]
+circuit test_make_polymind_module_defaults()
+    lex polylabs/polymind/test
+{
+    let m = polymind_ingest_module()
+    assert m.name == "polymind_ingest"
+    assert m.version_major == 0
+    assert m.version_minor == 1
+    assert m.version_patch == 0
+    assert m.sla_tier == SLATier::Premium as u8
+    assert m.aperture_partition == AperturePartition::Backend as u8
+}

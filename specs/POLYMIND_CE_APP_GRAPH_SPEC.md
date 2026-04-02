@@ -1,0 +1,179 @@
+# PolyMind CE + App Graph Specification
+
+| Field | Value |
+|-------|-------|
+| **Version** | v0.1.0 |
+| **Status** | Draft |
+| **Lex Namespace** | `polylabs/polymind` |
+| **App Graph** | `circuits/fl/polymind_app_graph.fl` |
+| **CE Meaning** | `circuits/fl/polymind_meaning.fl` |
+| **Upstream Dependency** | eStream v0.22.0+, PolyKit v0.1.0+ |
+
+---
+
+## 1. App Graph — 13 Modules
+
+PolyMind registers 13 FL circuit modules into a single App Graph under `polylabs/polymind`:
+
+| Module | Partition | SLA | Description |
+|--------|-----------|-----|-------------|
+| `polymind_ingest` | Backend | Premium | Content ingestion pipeline — text, audio, image, structured data |
+| `polymind_document_ingest` | Backend | Premium | Document-specific ingestion (PDF, DOCX, EPUB, HTML) via PolyDocs bridge |
+| `polymind_classify` | Backend | Standard | Content classification — topic, domain, sensitivity, provenance |
+| `polymind_eslm` | Backend | Premium | On-device ESLM training + inference (BitNet b1.58 micro-model) |
+| `polymind_query` | Head | Premium | Natural-language query engine — retrieval, ranking, synthesis |
+| `polymind_insight` | Backend | Standard | Pattern recognition — knowledge gaps, connections, temporal trends |
+| `polymind_rbac` | Shared | Standard | Field-level access control for corpus content and legacy policies |
+| `polymind_metering` | Backend | Standard | Per-user usage metering (ingest volume, query count, ESLM tokens) |
+| `polymind_platform_health` | Shared | Standard | Health probes, corpus integrity checks, ESLM model validation |
+| `polymind_guardian` | Backend | Premium | Guardian designation, transfer protocols, dead-man switch |
+| `polymind_legacy` | Backend | Premium | Digital estate assembly, time-locked releases, beneficiary routing |
+| `knowledge_graph` | Backend | Premium | Stratum CSR property graph — entities, concepts, relationships |
+| `legacy_dag` | Backend | Premium | Merkle-linked DAG for legacy artifact provenance and ordering |
+
+### Intra-Graph Dependencies
+
+```
+polymind_query -> polymind_classify, polymind_eslm, knowledge_graph
+polymind_insight -> knowledge_graph, polymind_classify
+polymind_ingest -> polymind_classify, knowledge_graph
+polymind_document_ingest -> polymind_ingest, polymind_classify
+polymind_eslm -> polymind_classify, knowledge_graph
+polymind_guardian -> polymind_rbac, polymind_legacy
+polymind_legacy -> legacy_dag, polymind_rbac, knowledge_graph
+polymind_metering -> polymind_rbac
+polymind_platform_health -> polymind_metering, polymind_rbac
+```
+
+---
+
+## 2. CE Meaning Domains
+
+Three meaning domains define the signal PolyMind's Cognitive Engine tracks:
+
+### 2.1 `knowledge/corpus_growth`
+
+Tracks the velocity and breadth of knowledge accumulation.
+
+| Signal | Type | Description |
+|--------|------|-------------|
+| `ingest_velocity` | gauge | Documents ingested per hour (rolling 24h window) |
+| `knowledge_coverage` | gauge | Percentage of user-declared topics with ≥10 corpus entries |
+| `corpus_diversity_index` | gauge | Shannon entropy across classification domains |
+| `stale_entry_ratio` | gauge | Fraction of entries not referenced in >90 days |
+
+### 2.2 `knowledge/query_quality`
+
+Tracks retrieval effectiveness and hallucination risk.
+
+| Signal | Type | Description |
+|--------|------|-------------|
+| `retrieval_precision` | gauge | Top-5 retrieval relevance score (user feedback + auto-eval) |
+| `hallucination_rate` | counter | Synthesized answers flagged as ungrounded per 1000 queries |
+| `query_latency_p99_ms` | gauge | 99th percentile query response latency |
+| `eslm_confidence_mean` | gauge | Mean ESLM confidence score across queries |
+
+### 2.3 `knowledge/legacy_governance`
+
+Tracks guardian transfer patterns and digital estate health.
+
+| Signal | Type | Description |
+|--------|------|-------------|
+| `guardian_transfer_patterns` | event | Guardian designation changes, dead-man switch activations |
+| `digital_estate_health` | gauge | Completeness score: beneficiary coverage, artifact freshness, policy currency |
+| `legacy_artifact_count` | gauge | Total time-locked and released legacy artifacts |
+| `policy_violation_count` | counter | Guardian policy violations detected per evaluation cycle |
+
+---
+
+## 3. Noise Filter
+
+### Suppression Rules
+
+| Rule | Pattern | Reason |
+|------|---------|--------|
+| `suppress_reindex` | `ingest_velocity` spike during scheduled re-index windows | Re-indexing is maintenance, not organic growth |
+| `suppress_cache_refresh` | `query_latency_p99_ms` transient spikes during ESLM cache warmup | Cache refresh is expected after model updates |
+| `suppress_bulk_import` | `corpus_diversity_index` drop during single-source bulk imports | Diversity recovers as import is classified |
+
+### Signal Amplification
+
+| Rule | Pattern | Reason |
+|------|---------|--------|
+| `amplify_knowledge_gap` | `knowledge_coverage` drops below 60% for any declared topic | Indicates corpus blind spot requiring user attention |
+| `amplify_guardian_violation` | Any `policy_violation_count` increment | Guardian policy violations are always actionable |
+| `amplify_hallucination_spike` | `hallucination_rate` exceeds 50 per 1000 queries | Retrieval pipeline degradation requires investigation |
+
+---
+
+## 4. SME Panels
+
+### 4.1 Knowledge Graph Quality Panel
+
+Evaluates the structural health of the knowledge graph.
+
+- **Metrics observed**: `corpus_diversity_index`, `stale_entry_ratio`, `knowledge_coverage`
+- **Trigger**: Weekly scheduled + on-demand when `knowledge_coverage` drops >10% in 24h
+- **Output**: Quality score (0–100), recommended re-classification actions, orphan node report
+
+### 4.2 ESLM Training Effectiveness Panel
+
+Evaluates whether on-device ESLM training is converging and useful.
+
+- **Metrics observed**: `eslm_confidence_mean`, `retrieval_precision`, `hallucination_rate`
+- **Trigger**: After every ESLM training epoch + on-demand when `hallucination_rate` spikes
+- **Output**: Training convergence assessment, recommended corpus curation actions, model rollback recommendation if regression detected
+
+### 4.3 Legacy Governance Compliance Panel
+
+Evaluates whether the digital estate is well-governed and transfer-ready.
+
+- **Metrics observed**: `guardian_transfer_patterns`, `digital_estate_health`, `policy_violation_count`, `legacy_artifact_count`
+- **Trigger**: Monthly scheduled + on-demand when guardian designation changes
+- **Output**: Estate readiness score (0–100), policy gap analysis, beneficiary coverage report
+
+---
+
+## 5. Bridge Edges
+
+### 5.1 PolyKit ESLM Classify Bridge
+
+| Field | Value |
+|-------|-------|
+| **Source** | `polylabs/polymind` → `polymind_classify` |
+| **Target** | `polylabs/polykit` → `polykit_eslm_classify` |
+| **Scope** | Platform |
+| **Shared Fields** | `classification_result`, `domain_tags`, `confidence_score` |
+| **Direction** | Bilateral — PolyMind sends content, PolyKit returns classification |
+
+### 5.2 PolyDocs Document Ingest Bridge
+
+| Field | Value |
+|-------|-------|
+| **Source** | `polylabs/polymind` → `polymind_document_ingest` |
+| **Target** | `polylabs/polydocs` → `polydocs_parser` |
+| **Scope** | Platform |
+| **Shared Fields** | `parsed_document`, `extracted_text`, `structural_metadata` |
+| **Direction** | Bilateral — PolyMind sends raw documents, PolyDocs returns parsed content |
+
+---
+
+## 6. Strategic Grant Configuration
+
+### 6.1 eStream Grant
+
+PolyMind consumes the following eStream platform primitives under the Poly Labs commercial license:
+
+- `scatter-cas` — Corpus content storage with erasure coding
+- `SPARK` — Per-product biometric identity (HKDF context: `poly-mind-v1`)
+- `StreamSight` — Observability within `polylabs/polymind` lex namespace
+- `ESLM` — On-device SSM micro-inference (BitNet b1.58)
+- `ML-KEM-1024` / `ML-DSA-87` — PQ encryption + signatures for legacy artifacts
+
+### 6.2 Paragon Grant
+
+PolyMind may optionally bridge to Paragon Foundation for family office deployments:
+
+- `paragon/foundation` → Entity graph for beneficiary resolution
+- `paragon/foundation` → Compliance framework for legacy regulatory requirements
+- Bridge is opt-in per deployment; PolyMind operates independently without Paragon
