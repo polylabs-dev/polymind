@@ -1,12 +1,12 @@
-// Poly Mind Legacy — Digital legacy with K-of-N guardian governance (v0.11.0)
+// Q Mind Legacy — Digital legacy with K-of-N guardian governance (v0.11.0)
 //
 // Lex Architecture:
-//   esn/global/org/polylabs/mind/legacy
+//   esn/global/org/polyqlabs/mind/legacy
 //   PQ lattice-based threshold secret sharing
 //   Graduated transfer: PUBLIC (day 0), INTERNAL (day 30), SENSITIVE (day 90), RESTRICTED (day 180)
 
-import polykit_identity
-import polykit_metering
+import qkit_identity
+import qkit_metering
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -47,7 +47,7 @@ data LegacyTrigger : mind v1 {
     signature_count: u8,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/legacy
+    govern lex esn/global/org/polyqlabs/mind/legacy
     cortex {
         redact [evidence_hash]
         obfuscate [submitted_by]
@@ -63,7 +63,7 @@ data AliveProof : mind v1 {
     timestamp: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/legacy
+    govern lex esn/global/org/polyqlabs/mind/legacy
     cortex {
         redact [biometric_hash, spark_signature]
         obfuscate [user_id]
@@ -81,7 +81,7 @@ circuit designate_guardian(
     signing_sk: bytes(4896),
 ) -> GovernanceNode
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/legacy
+    lex esn/global/org/polyqlabs/mind/legacy
     precision C
     povc true
     constant_time true
@@ -144,7 +144,7 @@ circuit designate_guardian(
 
     scatter_store(concat("share:", governance_id), encrypted_share, "RESTRICTED")
 
-    polykit_metering::record_usage(user_id, "mind_legacy_designate", DimensionValues {
+    qkit_metering::record_usage(user_id, "mind_legacy_designate", DimensionValues {
         executions: 1, hashes: 2, bandwidth: 0,
         storage: 256, observables: 1, proofs: 1, circuits: 0, mpc_sessions: 0,
     })
@@ -158,7 +158,7 @@ circuit revoke_guardian(
     signing_sk: bytes(4896),
 ) -> bool
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/legacy
+    lex esn/global/org/polyqlabs/mind/legacy
     precision C
     povc true
     constant_time true
@@ -183,7 +183,7 @@ circuit submit_alive_proof(
     signing_sk: bytes(4896),
 ) -> AliveProof
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/legacy
+    lex esn/global/org/polyqlabs/mind/legacy
     precision C
     povc true
     constant_time true
@@ -220,7 +220,7 @@ circuit submit_trigger(
     guardian_sk: bytes(4896),
 ) -> LegacyTrigger
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/legacy
+    lex esn/global/org/polyqlabs/mind/legacy
     precision C
     povc true
     constant_time true
@@ -256,7 +256,7 @@ circuit collect_signatures(
     threshold_k: u8,
 ) -> LegacyTrigger
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/legacy
+    lex esn/global/org/polyqlabs/mind/legacy
     precision C
     povc true
     constant_time true
@@ -290,7 +290,7 @@ circuit unlock_tier(
     signing_sk: bytes(4896),
 ) -> u32
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/legacy
+    lex esn/global/org/polyqlabs/mind/legacy
     precision C
     povc true
     constant_time true
@@ -327,7 +327,7 @@ circuit unlock_tier(
     overlay_set(legacy_governance, trigger_id, transfer_phase, tier.classification_level + 1)
     state_machine_transition(legacy_lifecycle, user_id, "tier_unlocked")
 
-    polykit_metering::record_usage(user_id, "mind_legacy_unlock", DimensionValues {
+    qkit_metering::record_usage(user_id, "mind_legacy_unlock", DimensionValues {
         executions: 1, hashes: 1, bandwidth: 0,
         storage: 0, observables: 1, proofs: 1, circuits: 0, mpc_sessions: 0,
     })
@@ -341,7 +341,7 @@ circuit execute_purge(
     signing_sk: bytes(4896),
 ) -> u32
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/legacy
+    lex esn/global/org/polyqlabs/mind/legacy
     precision C
     povc true
     constant_time true
@@ -374,7 +374,7 @@ circuit execute_purge(
     overlay_set(legacy_governance, trigger_id, transfer_phase, 5)
     state_machine_transition(legacy_lifecycle, user_id, "purge_executed")
 
-    polykit_metering::record_usage(user_id, "mind_legacy_purge", DimensionValues {
+    qkit_metering::record_usage(user_id, "mind_legacy_purge", DimensionValues {
         executions: 1, hashes: 0, bandwidth: 0,
         storage: 0, observables: 1, proofs: 1, circuits: 0, mpc_sessions: 0,
     })
@@ -391,7 +391,7 @@ circuit generate_lattice_share(
     n: u8,
 ) -> bytes
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/legacy
+    lex esn/global/org/polyqlabs/mind/legacy
     precision C
     povc true
     constant_time true
@@ -405,7 +405,7 @@ circuit regenerate_shares(
     signing_sk: bytes(4896),
 ) -> bool
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/legacy
+    lex esn/global/org/polyqlabs/mind/legacy
     precision C
     povc true
     constant_time true

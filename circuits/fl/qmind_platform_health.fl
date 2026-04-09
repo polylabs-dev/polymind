@@ -1,4 +1,4 @@
-// Poly Mind Platform Health — Blind relay telemetry for corpus operations (v0.11.0)
+// Q Mind Platform Health — Blind relay telemetry for corpus operations (v0.11.0)
 //
 // Aggregates platform-wide health metrics under zero-linkage privacy:
 //   - SPARK identity blinded via HKDF("poly-mind-telemetry-v1")
@@ -7,11 +7,11 @@
 //   - Temporal aggregation (1h minimum window)
 //
 // Lex Architecture:
-//   esn/global/org/polylabs/mind
+//   esn/global/org/polyqlabs/mind
 //     └── sub_lex corpus fan_in  ← per-corpus health; aggregates fan up
 
-import polykit_blind_telemetry from "../../polykit/circuits/fl/polykit_blind_telemetry.fl"
-import polykit_metering from "../../polykit/circuits/fl/polykit_metering.fl"
+import qkit_blind_telemetry from "../../qkit/circuits/fl/qkit_blind_telemetry.fl"
+import qkit_metering from "../../qkit/circuits/fl/qkit_metering.fl"
 
 // ── Data Declarations ───────────────────────────────────────────
 
@@ -31,7 +31,7 @@ data PlatformMetrics : mind v1 {
     collected_at: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind
+    govern lex esn/global/org/polyqlabs/mind
     cortex {
         obfuscate [blinded_mind_id]
         infer on_write
@@ -53,7 +53,7 @@ data MindHealthSnapshot : mind v1 {
     baseline_corpora: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind
+    govern lex esn/global/org/polyqlabs/mind
     cortex {
         infer on_read
     }
@@ -84,7 +84,7 @@ series mind_health_series: mind_health_events
 
 // ── Core Circuit: Platform Health ───────────────────────────────
 
-circuit polymind_platform_health(
+circuit qmind_platform_health(
     spark_id: bytes(32),
     active_user_count: u32,
     window_start_ms: u64,
@@ -98,7 +98,7 @@ circuit polymind_platform_health(
     inference_latency_avg_ms: u64,
 ) -> option<PlatformMetrics>
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind {
+    lex esn/global/org/polyqlabs/mind {
         governance hierarchical
         audit_trail true
         sub_lex corpus fan_in
@@ -107,7 +107,7 @@ circuit polymind_platform_health(
     streamsight true
     povc true
     constant_time true
-    esz_emit "verify/polymind_platform_health.esz"
+    esz_emit "verify/qmind_platform_health.esz"
     li_feed full_flir true, optimized_ir true, optimization_metadata true
     observe metrics: [health_snapshots_emitted, health_snapshots_rejected, mind_anomalies_detected]
     monitor "inference_latency" { inference_latency_avg_ms < 2000 }
@@ -124,37 +124,37 @@ circuit polymind_platform_health(
     fuzz_target
     test golden "full_health_pipeline" {
         let spark = bytes(32, 0xAA)
-        let result = polymind_platform_health(spark, 75, 0, 3600000, 300, 40, 150, 60, 200, 5, 450)
+        let result = qmind_platform_health(spark, 75, 0, 3600000, 300, 40, 150, 60, 200, 5, 450)
         assert result != none
     }
     test golden "rejects_small_cohort" {
         let spark = bytes(32, 0xBB)
-        let result = polymind_platform_health(spark, 20, 0, 3600000, 50, 10, 30, 10, 40, 1, 300)
+        let result = qmind_platform_health(spark, 20, 0, 3600000, 50, 10, 30, 10, 40, 1, 300)
         assert result == none
     }
     test golden "rejects_short_window" {
         let spark = bytes(32, 0xCC)
-        let result = polymind_platform_health(spark, 100, 0, 1800000, 50, 10, 30, 10, 40, 1, 300)
+        let result = qmind_platform_health(spark, 100, 0, 1800000, 50, 10, 30, 10, 40, 1, 300)
         assert result == none
     }
 {
     let ts = now_ns() / 1000000
 
-    let blinded_id = polykit_blind_telemetry::blind_user_id(spark_id, "poly-mind-telemetry-v1")
+    let blinded_id = qkit_blind_telemetry::blind_user_id(spark_id, "poly-mind-telemetry-v1")
 
-    let (cohort_status, cohort_ok) = polykit_blind_telemetry::enforce_cohort(active_user_count, 50)
+    let (cohort_status, cohort_ok) = qkit_blind_telemetry::enforce_cohort(active_user_count, 50)
     if !cohort_ok { return none }
 
-    let window_ok = polykit_blind_telemetry::enforce_aggregate_window(window_start_ms, window_end_ms, 3600000)
+    let window_ok = qkit_blind_telemetry::enforce_aggregate_window(window_start_ms, window_end_ms, 3600000)
     if !window_ok { return none }
 
-    let noised_queries = polykit_blind_telemetry::inject_noise(platform_queries, 1, 1000)
-    let noised_corpora = polykit_blind_telemetry::inject_noise(active_corpora, 1, 1000)
-    let noised_inferences = polykit_blind_telemetry::inject_noise(inference_requests, 1, 1000)
-    let noised_writes = polykit_blind_telemetry::inject_noise(corpus_writes, 1, 1000)
-    let noised_retrievals = polykit_blind_telemetry::inject_noise(memory_retrievals, 1, 1000)
-    let noised_legacy = polykit_blind_telemetry::inject_noise(legacy_snapshots, 1, 1000)
-    let noised_latency = polykit_blind_telemetry::inject_noise(inference_latency_avg_ms, 10, 500)
+    let noised_queries = qkit_blind_telemetry::inject_noise(platform_queries, 1, 1000)
+    let noised_corpora = qkit_blind_telemetry::inject_noise(active_corpora, 1, 1000)
+    let noised_inferences = qkit_blind_telemetry::inject_noise(inference_requests, 1, 1000)
+    let noised_writes = qkit_blind_telemetry::inject_noise(corpus_writes, 1, 1000)
+    let noised_retrievals = qkit_blind_telemetry::inject_noise(memory_retrievals, 1, 1000)
+    let noised_legacy = qkit_blind_telemetry::inject_noise(legacy_snapshots, 1, 1000)
+    let noised_latency = qkit_blind_telemetry::inject_noise(inference_latency_avg_ms, 10, 500)
 
     let latency_anomaly = streamsight_anomaly(inference_latency_avg_ms)
     let inference_baseline = streamsight_baseline("inference_requests")
@@ -205,7 +205,7 @@ circuit polymind_platform_health(
 
 // ── Secondary Circuit: Anomaly Check ────────────────────────────
 
-circuit polymind_anomaly_check(
+circuit qmind_anomaly_check(
     window_start_ms: u64,
     window_end_ms: u64,
     inference_requests: u64,
@@ -214,7 +214,7 @@ circuit polymind_anomaly_check(
     memory_retrievals: u64,
 ) -> MindHealthStatus
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind {
+    lex esn/global/org/polyqlabs/mind {
         sub_lex corpus fan_in
     }
     precision B
@@ -232,11 +232,11 @@ circuit polymind_anomaly_check(
         on_anomaly alert "mind-team"
     }
     test golden "healthy_state" {
-        let status = polymind_anomaly_check(0, 3600000, 200, 400, 50, 100)
+        let status = qmind_anomaly_check(0, 3600000, 200, 400, 50, 100)
         assert status == MindHealthStatus::Healthy
     }
     test golden "degraded_on_high_latency" {
-        let status = polymind_anomaly_check(0, 3600000, 200, 1800, 50, 100)
+        let status = qmind_anomaly_check(0, 3600000, 200, 1800, 50, 100)
         assert status == MindHealthStatus::Degraded
     }
 {

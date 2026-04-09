@@ -1,10 +1,10 @@
-// Poly Mind Document Ingest — Extract text and structure from documents for corpus indexing
+// Q Mind Document Ingest — Extract text and structure from documents for corpus indexing
 //
 // Lex Architecture:
-//   esn/global/org/polylabs/mind/document
-//   Composes polykit_studio_document to parse PDF, DOCX, PPTX, XLSX into structured
+//   esn/global/org/polyqlabs/mind/document
+//   Composes qkit_studio_document to parse PDF, DOCX, PPTX, XLSX into structured
 //   text for corpus ingestion. Extracts headings, paragraphs, tables, and slide content
-//   as a hierarchical DocumentStructure, then feeds it through polymind_ingest for
+//   as a hierarchical DocumentStructure, then feeds it through qmind_ingest for
 //   embedding and concept extraction. Classification is applied before indexing.
 //
 // Flow:
@@ -13,9 +13,9 @@
 //   index_document_structure  → build section graph → overlay relevance → link concepts
 //   classify_document_content → ESLM classification with format-aware heuristics
 
-import polykit_studio_document
-import polymind_ingest
-import polymind_classify
+import qkit_studio_document
+import qmind_ingest
+import qmind_classify
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -66,7 +66,7 @@ data DocumentCorpusEntry : mind v1 {
     ingested_at: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/document
+    govern lex esn/global/org/polyqlabs/mind/document
     cortex {
         obfuscate [user_id]
         infer on_write
@@ -85,7 +85,7 @@ data DocumentStructure : mind v1 {
     parsed_at: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/document
+    govern lex esn/global/org/polyqlabs/mind/document
     cortex {
         infer on_write
         on_anomaly alert "mind-team"
@@ -99,7 +99,7 @@ data TextExtraction : mind v1 {
     extracted_at: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/document
+    govern lex esn/global/org/polyqlabs/mind/document
     cortex {
         infer on_write
         on_anomaly alert "mind-team"
@@ -114,7 +114,7 @@ data DocumentClassification : mind v1 {
     classified_at: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/document
+    govern lex esn/global/org/polyqlabs/mind/document
     cortex {
         infer on_write
         on_anomaly alert "mind-team"
@@ -140,7 +140,7 @@ circuit ingest_document(
     signing_sk: bytes(4896),
 ) -> DocumentCorpusEntry
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/document
+    lex esn/global/org/polyqlabs/mind/document
     precision C
     povc true
     observe metrics: [documents_ingested, ingest_latency_ms, corpus_growth_bytes, format_distribution]
@@ -166,9 +166,9 @@ circuit ingest_document(
     let embedding = eslm_embed(text.text_content, 1024)
     let embedding_hash = sha3_256(embedding)
 
-    let concepts = polymind_ingest::extract_concepts(text.text_content, embedding)
+    let concepts = qmind_ingest::extract_concepts(text.text_content, embedding)
     let concept_ids = map(concepts, |c| c.concept_id)
-    let _ref_count = polymind_ingest::link_references(document_id, concepts, signing_sk)
+    let _ref_count = qmind_ingest::link_references(document_id, concepts, signing_sk)
 
     let entry_seed = concat(user_id, document_id, csprng(16), encode_u64(ts))
     let entry_id = bit_slice(sha3_256(entry_seed), 0, 128)
@@ -192,7 +192,7 @@ circuit ingest_document(
     eslite_insert("document_corpus", entry_id, entry)
     emit(document_ingest_events, entry)
 
-    polymind_classify::record_classification(document_id, classification.classification)
+    qmind_classify::record_classification(document_id, classification.classification)
 
     entry
 }
@@ -203,7 +203,7 @@ circuit extract_text(
     format: DocumentFormat,
 ) -> TextExtraction
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/document
+    lex esn/global/org/polyqlabs/mind/document
     precision C
     observe metrics: [text_extractions, extraction_latency_ms, words_extracted]
     monitor "extraction_latency" { extraction_latency_ms < 2000 }
@@ -222,7 +222,7 @@ circuit index_document_structure(
     signing_sk: bytes(4896),
 ) -> u32
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/document
+    lex esn/global/org/polyqlabs/mind/document
     precision C
     povc true
     observe metrics: [structures_indexed, sections_linked, index_latency_ms]
@@ -276,7 +276,7 @@ circuit classify_document_content(
     hint: u8,
 ) -> DocumentClassification
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/document
+    lex esn/global/org/polyqlabs/mind/document
     precision B
     povc true
     observe metrics: [classifications, classification_overrides, format_classification_distribution]
@@ -286,7 +286,7 @@ circuit classify_document_content(
     wasm_abi [eslm_classify, now]
 {
     let ts = now()
-    let text = polykit_studio_document::extract_text(content, format)
+    let text = qkit_studio_document::extract_text(content, format)
     let eslm_result = eslm_classify(text, "sensitivity")
     let eslm_label = eslm_classify_label(text, "document_type")
 
@@ -327,12 +327,12 @@ circuit parse_document_structure(
     format: DocumentFormat,
 ) -> DocumentStructure
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/document
+    lex esn/global/org/polyqlabs/mind/document
     precision C
     wasm_abi [now, csprng]
 {
     let ts = now()
-    let raw_sections = polykit_studio_document::parse_structure(content, format)
+    let raw_sections = qkit_studio_document::parse_structure(content, format)
     let sections = parallel for raw in raw_sections {
         let sid = bit_slice(sha3_256(concat(document_id, raw.content, csprng(8))), 0, 128)
         DocumentSection {
@@ -369,13 +369,13 @@ circuit extract_document_text(
     format: DocumentFormat,
 ) -> TextExtraction
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/document
+    lex esn/global/org/polyqlabs/mind/document
     precision C
     wasm_abi [now]
 {
     let ts = now()
-    let text_content = polykit_studio_document::extract_text(content, format)
-    let section_offsets = polykit_studio_document::extract_section_offsets(content, format)
+    let text_content = qkit_studio_document::extract_text(content, format)
+    let section_offsets = qkit_studio_document::extract_section_offsets(content, format)
 
     TextExtraction {
         document_id: document_id,

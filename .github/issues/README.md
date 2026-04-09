@@ -1,8 +1,8 @@
-# Poly Mind - GitHub Issues
+# Q Mind - GitHub Issues
 
-> GitHub org: [polylabs-dev](https://github.com/polylabs-dev) | Domain: [polylabs.dev](https://polylabs.dev)
+> GitHub org: [polylabs-dev](https://github.com/polylabs-dev) | Domain: [polyqlabs.dev](https://polyqlabs.dev)
 
-## Epic 01: Poly Mind Foundation
+## Epic 01: Q Mind Foundation
 
 | # | Issue | Status | Priority |
 |---|-------|--------|----------|
@@ -43,5 +43,5 @@
 | 020 | Voice memo ingestion (transcription) | Open | P2 |
 | 021 | Image captioning (ESLM vision) | Open | P2 |
 | 022 | Team knowledge bases (enterprise) | Open | P2 |
-| 023 | Poly Vault HSM integration (SOVEREIGN tier) | Open | P2 |
+| 023 | Q Vault HSM integration (SOVEREIGN tier) | Open | P2 |
 | 024 | Mobile app (React Native) | Open | P2 |

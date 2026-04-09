@@ -1,7 +1,7 @@
-// Poly Mind Knowledge Graph — Corpus graph with document/concept/relationship nodes (v0.11.0)
+// Q Mind Knowledge Graph — Corpus graph with document/concept/relationship nodes (v0.11.0)
 //
 // Lex Architecture:
-//   esn/global/org/polylabs/mind
+//   esn/global/org/polyqlabs/mind
 //   Stratum graph storage + Cortex AI governance
 //   CSR tiered storage (hot @bram, warm @ddr, cold @nvme)
 //
@@ -11,9 +11,9 @@
 //   Overlays: relevance_score, last_accessed_ns, citation_count, confidence
 //   AI Feed: corpus_insight (emerging topics, relevance decay, contradiction clusters)
 
-import polykit_identity
-import polykit_metering
-import polykit_governance
+import qkit_identity
+import qkit_metering
+import qkit_governance
 
 // ── Enums ───────────────────────────────────────────────────────
 
@@ -73,7 +73,7 @@ data DocumentNode : mind v1 {
     updated_at: u64,
 }
     store graph
-    govern lex esn/global/org/polylabs/mind
+    govern lex esn/global/org/polyqlabs/mind
     cortex {
         redact [content_encrypted, embedding_vector]
         obfuscate [source_path, author_id]
@@ -95,7 +95,7 @@ data ConceptNode : mind v1 {
     last_updated_at: u64,
 }
     store graph
-    govern lex esn/global/org/polylabs/mind
+    govern lex esn/global/org/polyqlabs/mind
     cortex {
         obfuscate [extracted_by]
         infer on_write
@@ -114,7 +114,7 @@ data RelationshipNode : mind v1 {
     created_at: u64,
 }
     store graph
-    govern lex esn/global/org/polylabs/mind
+    govern lex esn/global/org/polyqlabs/mind
     cortex {
         infer on_read
     }
@@ -222,7 +222,7 @@ circuit insert_document(
     signing_sk: bytes(4896),
 ) -> DocumentNode
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     constant_time false
@@ -249,7 +249,7 @@ circuit insert_document(
     let doc_seed = concat(user_id, content_hash, csprng(16), ts)
     let document_id = bit_slice(sha3_256(doc_seed), 0, 128)
     let embedding_hash = sha3_256(embedding_vector)
-    let author_id = polykit_identity::derive_user_id(user_id)
+    let author_id = qkit_identity::derive_user_id(user_id)
 
     let doc = DocumentNode {
         document_id: document_id,
@@ -281,7 +281,7 @@ circuit insert_document(
 
     eslm_feed(corpus_insight, serialize(doc), classification)
 
-    polykit_metering::record_usage(user_id, "graph_document_insert", DimensionValues {
+    qkit_metering::record_usage(user_id, "graph_document_insert", DimensionValues {
         executions: 1, hashes: 2, bandwidth: 0,
         storage: len(content_encrypted), observables: 4, proofs: 1, circuits: 0, mpc_sessions: 0,
     })
@@ -299,7 +299,7 @@ circuit insert_concept(
     signing_sk: bytes(4896),
 ) -> ConceptNode
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     observe metrics: [concepts_inserted, concept_insert_latency_ns]
@@ -356,7 +356,7 @@ circuit insert_relationship(
     signing_sk: bytes(4896),
 ) -> RelationshipNode
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     observe metrics: [relationships_inserted]
@@ -406,7 +406,7 @@ circuit get_document(
     document_id: bytes(16),
 ) -> option<DocumentNode>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision B
     observe metrics: [document_lookups]
 {
@@ -418,7 +418,7 @@ circuit get_concepts_for_document(
     document_id: bytes(16),
 ) -> list<ConceptNode>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision B
     observe metrics: [concept_lookups]
 {
@@ -430,7 +430,7 @@ circuit get_documents_for_concept(
     concept_id: bytes(16),
 ) -> list<DocumentNode>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision B
     observe metrics: [reverse_concept_lookups]
 {
@@ -442,7 +442,7 @@ circuit get_contradictions(
     document_id: bytes(16),
 ) -> list<ContradictEdge>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision B
     observe metrics: [contradiction_lookups]
 {
@@ -456,7 +456,7 @@ circuit get_neighborhood(
     classification_ceiling: u8,
 ) -> list<bytes(16)>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision B
     observe metrics: [neighborhood_queries, nodes_visited]
     invariant "hops_bounded" { max_hops <= 5 }
@@ -489,7 +489,7 @@ circuit update_relevance(
     delta: i16,
 ) -> u16
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision B
     povc true
     observe metrics: [relevance_updates]
@@ -506,7 +506,7 @@ circuit decay_relevance(
     decay_factor: u16,
 ) -> u32
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision B
     povc true
     observe metrics: [decay_ops, documents_decayed, documents_staled]
@@ -540,7 +540,7 @@ circuit prune_stale(
     signing_sk: bytes(4896),
 ) -> u32
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     observe metrics: [prune_ops, documents_pruned]
@@ -573,7 +573,7 @@ circuit snapshot_corpus_state(
     signing_sk: bytes(4896),
 ) -> string
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     observe metrics: [snapshots_created, snapshot_size_bytes]

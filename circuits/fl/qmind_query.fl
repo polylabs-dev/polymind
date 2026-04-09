@@ -1,11 +1,11 @@
-// Poly Mind Query — Vector search + graph traversal query engine (v0.11.0)
+// Q Mind Query — Vector search + graph traversal query engine (v0.11.0)
 //
 // Lex Architecture:
-//   esn/global/org/polylabs/mind/query
+//   esn/global/org/polyqlabs/mind/query
 //   Hybrid retrieval: vector similarity + graph neighborhood + temporal recency
 
-import polykit_identity
-import polykit_metering
+import qkit_identity
+import qkit_metering
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -47,7 +47,7 @@ data QueryPlan : mind v1 {
     estimated_cost_cycles: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/query
+    govern lex esn/global/org/polyqlabs/mind/query
     cortex {
         infer on_read
     }
@@ -60,7 +60,7 @@ data QueryResultItem : mind v1 {
     classification: u8,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/query
+    govern lex esn/global/org/polyqlabs/mind/query
     cortex {
         obfuscate [snippet_hash]
         infer on_read
@@ -78,7 +78,7 @@ type QueryResult = struct {
 
 circuit query_corpus(req: QueryRequest) -> QueryResult
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/query
+    lex esn/global/org/polyqlabs/mind/query
     precision C
     povc true
     observe metrics: [query_ops, query_latency_ns, results_returned, empty_results]
@@ -125,7 +125,7 @@ circuit query_corpus(req: QueryRequest) -> QueryResult
 
     let t_end = now_ns()
 
-    polykit_metering::record_usage(req.user_id, "mind_query", DimensionValues {
+    qkit_metering::record_usage(req.user_id, "mind_query", DimensionValues {
         executions: 1, hashes: 0, bandwidth: 0,
         storage: 0, observables: 1, proofs: 0, circuits: 1, mpc_sessions: 0,
     })
@@ -145,7 +145,7 @@ circuit vector_search(
     classification_ceiling: u8,
 ) -> list<QueryResultItem>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/query
+    lex esn/global/org/polyqlabs/mind/query
     precision B
     povc true
     observe metrics: [vector_search_ops, vector_candidates_scanned]
@@ -164,7 +164,7 @@ circuit graph_traverse(
     classification_ceiling: u8,
 ) -> list<QueryResultItem>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/query
+    lex esn/global/org/polyqlabs/mind/query
     precision B
     povc true
     observe metrics: [graph_traverse_ops, graph_nodes_visited]
@@ -197,7 +197,7 @@ circuit rank_results(
     max_results: u16,
 ) -> list<QueryResultItem>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/query
+    lex esn/global/org/polyqlabs/mind/query
     precision B
     povc true
     observe metrics: [rank_ops, candidates_filtered]
@@ -233,7 +233,7 @@ circuit explain_reasoning(
     results: list<QueryResultItem>,
 ) -> string
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/query
+    lex esn/global/org/polyqlabs/mind/query
     precision B
     povc true
     observe metrics: [explanation_ops]
@@ -252,7 +252,7 @@ circuit explain_reasoning(
 
 circuit build_query_plan(req: QueryRequest) -> QueryPlan
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/query
+    lex esn/global/org/polyqlabs/mind/query
     precision B
     povc true
 {
@@ -279,7 +279,7 @@ circuit temporal_scan(
     classification_ceiling: u8,
 ) -> list<QueryResultItem>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/query
+    lex esn/global/org/polyqlabs/mind/query
     precision B
     povc true
     observe metrics: [temporal_scan_ops]
@@ -295,7 +295,7 @@ circuit merge_deduplicate(
     temporal: list<QueryResultItem>,
 ) -> list<QueryResultItem>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/query
+    lex esn/global/org/polyqlabs/mind/query
     precision B
     povc true
 {
@@ -312,7 +312,7 @@ circuit merge_deduplicate(
 
 circuit compute_recency_bonus(last_access_ns: u64) -> u16
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/query
+    lex esn/global/org/polyqlabs/mind/query
     precision B
     povc true
 {

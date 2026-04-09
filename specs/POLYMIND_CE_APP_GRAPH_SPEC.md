@@ -4,45 +4,45 @@
 |-------|-------|
 | **Version** | v0.1.0 |
 | **Status** | Draft |
-| **Lex Namespace** | `polylabs/polymind` |
-| **App Graph** | `circuits/fl/polymind_app_graph.fl` |
-| **CE Meaning** | `circuits/fl/polymind_meaning.fl` |
-| **Upstream Dependency** | eStream v0.22.0+, PolyKit v0.1.0+ |
+| **Lex Namespace** | `polyqlabs/qmind` |
+| **App Graph** | `circuits/fl/qmind_app_graph.fl` |
+| **CE Meaning** | `circuits/fl/qmind_meaning.fl` |
+| **Upstream Dependency** | eStream v0.22.0+, QKit v0.1.0+ |
 
 ---
 
 ## 1. App Graph — 13 Modules
 
-PolyMind registers 13 FL circuit modules into a single App Graph under `polylabs/polymind`:
+PolyMind registers 13 FL circuit modules into a single App Graph under `polyqlabs/qmind`:
 
 | Module | Partition | SLA | Description |
 |--------|-----------|-----|-------------|
-| `polymind_ingest` | Backend | Premium | Content ingestion pipeline — text, audio, image, structured data |
-| `polymind_document_ingest` | Backend | Premium | Document-specific ingestion (PDF, DOCX, EPUB, HTML) via PolyDocs bridge |
-| `polymind_classify` | Backend | Standard | Content classification — topic, domain, sensitivity, provenance |
-| `polymind_eslm` | Backend | Premium | On-device ESLM training + inference (BitNet b1.58 micro-model) |
-| `polymind_query` | Head | Premium | Natural-language query engine — retrieval, ranking, synthesis |
-| `polymind_insight` | Backend | Standard | Pattern recognition — knowledge gaps, connections, temporal trends |
-| `polymind_rbac` | Shared | Standard | Field-level access control for corpus content and legacy policies |
-| `polymind_metering` | Backend | Standard | Per-user usage metering (ingest volume, query count, ESLM tokens) |
-| `polymind_platform_health` | Shared | Standard | Health probes, corpus integrity checks, ESLM model validation |
-| `polymind_guardian` | Backend | Premium | Guardian designation, transfer protocols, dead-man switch |
-| `polymind_legacy` | Backend | Premium | Digital estate assembly, time-locked releases, beneficiary routing |
+| `qmind_ingest` | Backend | Premium | Content ingestion pipeline — text, audio, image, structured data |
+| `qmind_document_ingest` | Backend | Premium | Document-specific ingestion (PDF, DOCX, EPUB, HTML) via PolyDocs bridge |
+| `qmind_classify` | Backend | Standard | Content classification — topic, domain, sensitivity, provenance |
+| `qmind_eslm` | Backend | Premium | On-device ESLM training + inference (BitNet b1.58 micro-model) |
+| `qmind_query` | Head | Premium | Natural-language query engine — retrieval, ranking, synthesis |
+| `qmind_insight` | Backend | Standard | Pattern recognition — knowledge gaps, connections, temporal trends |
+| `qmind_rbac` | Shared | Standard | Field-level access control for corpus content and legacy policies |
+| `qmind_metering` | Backend | Standard | Per-user usage metering (ingest volume, query count, ESLM tokens) |
+| `qmind_platform_health` | Shared | Standard | Health probes, corpus integrity checks, ESLM model validation |
+| `qmind_guardian` | Backend | Premium | Guardian designation, transfer protocols, dead-man switch |
+| `qmind_legacy` | Backend | Premium | Digital estate assembly, time-locked releases, beneficiary routing |
 | `knowledge_graph` | Backend | Premium | Stratum CSR property graph — entities, concepts, relationships |
 | `legacy_dag` | Backend | Premium | Merkle-linked DAG for legacy artifact provenance and ordering |
 
 ### Intra-Graph Dependencies
 
 ```
-polymind_query -> polymind_classify, polymind_eslm, knowledge_graph
-polymind_insight -> knowledge_graph, polymind_classify
-polymind_ingest -> polymind_classify, knowledge_graph
-polymind_document_ingest -> polymind_ingest, polymind_classify
-polymind_eslm -> polymind_classify, knowledge_graph
-polymind_guardian -> polymind_rbac, polymind_legacy
-polymind_legacy -> legacy_dag, polymind_rbac, knowledge_graph
-polymind_metering -> polymind_rbac
-polymind_platform_health -> polymind_metering, polymind_rbac
+qmind_query -> qmind_classify, qmind_eslm, knowledge_graph
+qmind_insight -> knowledge_graph, qmind_classify
+qmind_ingest -> qmind_classify, knowledge_graph
+qmind_document_ingest -> qmind_ingest, qmind_classify
+qmind_eslm -> qmind_classify, knowledge_graph
+qmind_guardian -> qmind_rbac, qmind_legacy
+qmind_legacy -> legacy_dag, qmind_rbac, knowledge_graph
+qmind_metering -> qmind_rbac
+qmind_platform_health -> qmind_metering, qmind_rbac
 ```
 
 ---
@@ -136,22 +136,22 @@ Evaluates whether the digital estate is well-governed and transfer-ready.
 
 ## 5. Bridge Edges
 
-### 5.1 PolyKit ESLM Classify Bridge
+### 5.1 QKit ESLM Classify Bridge
 
 | Field | Value |
 |-------|-------|
-| **Source** | `polylabs/polymind` → `polymind_classify` |
-| **Target** | `polylabs/polykit` → `polykit_eslm_classify` |
+| **Source** | `polyqlabs/qmind` → `qmind_classify` |
+| **Target** | `polyqlabs/qkit` → `qkit_eslm_classify` |
 | **Scope** | Platform |
 | **Shared Fields** | `classification_result`, `domain_tags`, `confidence_score` |
-| **Direction** | Bilateral — PolyMind sends content, PolyKit returns classification |
+| **Direction** | Bilateral — PolyMind sends content, QKit returns classification |
 
 ### 5.2 PolyDocs Document Ingest Bridge
 
 | Field | Value |
 |-------|-------|
-| **Source** | `polylabs/polymind` → `polymind_document_ingest` |
-| **Target** | `polylabs/polydocs` → `polydocs_parser` |
+| **Source** | `polyqlabs/qmind` → `qmind_document_ingest` |
+| **Target** | `polyqlabs/qdocs` → `qdocs_parser` |
 | **Scope** | Platform |
 | **Shared Fields** | `parsed_document`, `extracted_text`, `structural_metadata` |
 | **Direction** | Bilateral — PolyMind sends raw documents, PolyDocs returns parsed content |
@@ -162,11 +162,11 @@ Evaluates whether the digital estate is well-governed and transfer-ready.
 
 ### 6.1 eStream Grant
 
-PolyMind consumes the following eStream platform primitives under the Poly Labs commercial license:
+PolyMind consumes the following eStream platform primitives under the PolyQ Labs commercial license:
 
 - `scatter-cas` — Corpus content storage with erasure coding
-- `SPARK` — Per-product biometric identity (HKDF context: `poly-mind-v1`)
-- `StreamSight` — Observability within `polylabs/polymind` lex namespace
+- `SPARK` — Per-product biometric identity (HKDF context: `q-mind-v1`)
+- `StreamSight` — Observability within `polyqlabs/qmind` lex namespace
 - `ESLM` — On-device SSM micro-inference (BitNet b1.58)
 - `ML-KEM-1024` / `ML-DSA-87` — PQ encryption + signatures for legacy artifacts
 

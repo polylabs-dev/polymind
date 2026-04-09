@@ -1,13 +1,13 @@
-// Poly Mind ESLM — Model management, checkpointing, fine-tuning, inference (v0.11.0)
+// Q Mind ESLM — Model management, checkpointing, fine-tuning, inference (v0.11.0)
 //
 // Lex Architecture:
-//   esn/global/org/polylabs/mind/eslm
+//   esn/global/org/polyqlabs/mind/eslm
 //   On-device ESLM (eStream Small Language Model) with persistent SSM state.
 //   Manages model checkpoints, fine-tuning jobs, and inference requests.
 //   All inference is local; network used only for scatter-sync of encrypted state.
 
-import polykit_identity
-import polykit_metering
+import qkit_identity
+import qkit_metering
 
 // ── Enums ───────────────────────────────────────────────────────
 
@@ -63,7 +63,7 @@ data EslmModel : mind v1 {
     updated_at: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/eslm
+    govern lex esn/global/org/polyqlabs/mind/eslm
     cortex {
         redact [ssm_state_encrypted]
         infer on_write
@@ -85,7 +85,7 @@ data Checkpoint : mind v1 {
     signature: bytes(4627),
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/eslm
+    govern lex esn/global/org/polyqlabs/mind/eslm
     cortex {
         infer on_write
         on_anomaly alert "mind-team"
@@ -105,7 +105,7 @@ data InferenceResult : mind v1 {
     created_at: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/eslm
+    govern lex esn/global/org/polyqlabs/mind/eslm
     cortex {
         redact [output_encrypted]
         obfuscate [input_hash]
@@ -129,7 +129,7 @@ data FineTuneJob : mind v1 {
     status: u8,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/eslm
+    govern lex esn/global/org/polyqlabs/mind/eslm
     cortex {
         infer on_write
         on_anomaly alert "mind-team"
@@ -179,7 +179,7 @@ circuit initialize_model(
     signing_sk: bytes(4896),
 ) -> EslmModel
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/eslm
+    lex esn/global/org/polyqlabs/mind/eslm
     precision C
     povc true
     observe metrics: [models_initialized]
@@ -227,7 +227,7 @@ circuit initialize_model(
     state_machine_transition(eslm_lifecycle, model_id, "model_loaded")
     emit(eslm_events, model)
 
-    polykit_metering::record_usage(user_id, "eslm_init", DimensionValues {
+    qkit_metering::record_usage(user_id, "eslm_init", DimensionValues {
         executions: 1, hashes: 1, bandwidth: 0,
         storage: len(encrypted_state), observables: 1, proofs: 0, circuits: 1, mpc_sessions: 0,
     })
@@ -243,7 +243,7 @@ circuit create_checkpoint(
     signing_sk: bytes(4896),
 ) -> Checkpoint
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/eslm
+    lex esn/global/org/polyqlabs/mind/eslm
     precision C
     povc true
     observe metrics: [checkpoints_created, checkpoint_size_bytes]
@@ -291,7 +291,7 @@ circuit restore_checkpoint(
     signing_sk: bytes(4896),
 ) -> EslmModel
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/eslm
+    lex esn/global/org/polyqlabs/mind/eslm
     precision C
     povc true
     constant_time true
@@ -327,7 +327,7 @@ circuit run_inference(
     signing_sk: bytes(4896),
 ) -> InferenceResult
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/eslm
+    lex esn/global/org/polyqlabs/mind/eslm
     precision C
     povc true
     observe metrics: [inference_ops, inference_latency_ns, tokens_generated]
@@ -383,7 +383,7 @@ circuit run_inference(
     eslite_insert("eslm_inferences", inference_id, result)
     emit(inference_events, result)
 
-    polykit_metering::record_usage(model.user_id, "eslm_inference", DimensionValues {
+    qkit_metering::record_usage(model.user_id, "eslm_inference", DimensionValues {
         executions: 1, hashes: 2, bandwidth: 0,
         storage: len(output_encrypted), observables: 1, proofs: 0, circuits: 1, mpc_sessions: 0,
     })
@@ -400,7 +400,7 @@ circuit start_fine_tune(
     signing_sk: bytes(4896),
 ) -> FineTuneJob
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/eslm
+    lex esn/global/org/polyqlabs/mind/eslm
     precision C
     povc true
     observe metrics: [fine_tune_started, fine_tune_strategy]
@@ -451,7 +451,7 @@ circuit complete_fine_tune(
     signing_sk: bytes(4896),
 ) -> FineTuneJob
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/eslm
+    lex esn/global/org/polyqlabs/mind/eslm
     precision C
     povc true
     observe metrics: [fine_tune_completed, fine_tune_loss_delta]
@@ -483,7 +483,7 @@ circuit complete_fine_tune(
 
     state_machine_transition(eslm_lifecycle, job.model_id, "fine_tune_complete")
 
-    polykit_metering::record_usage(model.user_id, "eslm_fine_tune", DimensionValues {
+    qkit_metering::record_usage(model.user_id, "eslm_fine_tune", DimensionValues {
         executions: 1, hashes: 2, bandwidth: 0,
         storage: 0, observables: 2, proofs: 0, circuits: 1, mpc_sessions: 0,
     })
@@ -495,7 +495,7 @@ circuit complete_fine_tune(
 
 circuit get_model(model_id: bytes(16)) -> option<EslmModel>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/eslm
+    lex esn/global/org/polyqlabs/mind/eslm
     precision B
     observe metrics: [model_lookups]
     wasm_abi [eslite_query]
@@ -505,7 +505,7 @@ circuit get_model(model_id: bytes(16)) -> option<EslmModel>
 
 circuit list_checkpoints(model_id: bytes(16)) -> list<Checkpoint>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/eslm
+    lex esn/global/org/polyqlabs/mind/eslm
     precision B
     observe metrics: [checkpoint_list_queries]
     wasm_abi [eslite_scan]
@@ -518,7 +518,7 @@ circuit get_inference_history(
     limit: u16,
 ) -> list<InferenceResult>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/eslm
+    lex esn/global/org/polyqlabs/mind/eslm
     precision B
     observe metrics: [inference_history_queries]
     wasm_abi [eslite_scan]

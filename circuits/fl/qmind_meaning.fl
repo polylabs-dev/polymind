@@ -3,7 +3,7 @@
 /// amplification rules, 3 SME panels, and a top-level CE registration
 /// orchestrator.
 
-lex polylabs/polymind/ce
+lex polyqlabs/qmind/ce
 
 @target software
 @codegen_targets ["wasm", "rust"]
@@ -19,14 +19,14 @@ import "core/intelligence/cortex/cortex_meaning.fl" {
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const POLYMIND_CE_LEX: string = "polylabs/polymind"
+const POLYMIND_CE_LEX: string = "polyqlabs/qmind"
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // §1  Meaning Domains
 // ═══════════════════════════════════════════════════════════════════════════════
 
 circuit knowledge_corpus_growth_domain() -> MeaningDomain
-    lex polylabs/polymind/ce
+    lex polyqlabs/qmind/ce
     @status production  @precision C
 {
     MeaningDomain {
@@ -46,7 +46,7 @@ circuit knowledge_corpus_growth_domain() -> MeaningDomain
 }
 
 circuit knowledge_query_quality_domain() -> MeaningDomain
-    lex polylabs/polymind/ce
+    lex polyqlabs/qmind/ce
     @status production  @precision C
 {
     MeaningDomain {
@@ -66,7 +66,7 @@ circuit knowledge_query_quality_domain() -> MeaningDomain
 }
 
 circuit knowledge_legacy_governance_domain() -> MeaningDomain
-    lex polylabs/polymind/ce
+    lex polyqlabs/qmind/ce
     @status production  @precision C
 {
     MeaningDomain {
@@ -89,8 +89,8 @@ circuit knowledge_legacy_governance_domain() -> MeaningDomain
 // §2  Noise Filter
 // ═══════════════════════════════════════════════════════════════════════════════
 
-circuit polymind_noise_filter() -> NoiseFilter
-    lex polylabs/polymind/ce
+circuit qmind_noise_filter() -> NoiseFilter
+    lex polyqlabs/qmind/ce
     @status production  @precision C
 {
     NoiseFilter {
@@ -131,7 +131,7 @@ circuit polymind_noise_filter() -> NoiseFilter
 // ═══════════════════════════════════════════════════════════════════════════════
 
 circuit knowledge_graph_quality_panel() -> SmePanel
-    lex polylabs/polymind/ce
+    lex polyqlabs/qmind/ce
     @status production  @precision C
 {
     SmePanel {
@@ -146,7 +146,7 @@ circuit knowledge_graph_quality_panel() -> SmePanel
 }
 
 circuit eslm_training_effectiveness_panel() -> SmePanel
-    lex polylabs/polymind/ce
+    lex polyqlabs/qmind/ce
     @status production  @precision C
 {
     SmePanel {
@@ -161,7 +161,7 @@ circuit eslm_training_effectiveness_panel() -> SmePanel
 }
 
 circuit legacy_governance_compliance_panel() -> SmePanel
-    lex polylabs/polymind/ce
+    lex polyqlabs/qmind/ce
     @status production  @precision C
 {
     SmePanel {
@@ -180,8 +180,8 @@ circuit legacy_governance_compliance_panel() -> SmePanel
 // §4  CE Registration Orchestrator
 // ═══════════════════════════════════════════════════════════════════════════════
 
-circuit polymind_register_ce(product_lex: string) -> bool
-    lex polylabs/polymind/ce
+circuit qmind_register_ce(product_lex: string) -> bool
+    lex polyqlabs/qmind/ce
     @status production
     @precision B
     @attested true
@@ -194,7 +194,7 @@ circuit polymind_register_ce(product_lex: string) -> bool
     let reg = ce_register_domain(reg, knowledge_query_quality_domain())
     let reg = ce_register_domain(reg, knowledge_legacy_governance_domain())
 
-    let reg = ce_register_noise_filter(reg, polymind_noise_filter())
+    let reg = ce_register_noise_filter(reg, qmind_noise_filter())
 
     let reg = ce_register_sme_panel(reg, knowledge_graph_quality_panel())
     let reg = ce_register_sme_panel(reg, eslm_training_effectiveness_panel())
@@ -209,7 +209,7 @@ circuit polymind_register_ce(product_lex: string) -> bool
 
 #[test]
 circuit test_corpus_growth_domain_signals()
-    lex polylabs/polymind/ce/test
+    lex polyqlabs/qmind/ce/test
 {
     let domain = knowledge_corpus_growth_domain()
     assert domain.name == "knowledge/corpus_growth"
@@ -219,7 +219,7 @@ circuit test_corpus_growth_domain_signals()
 
 #[test]
 circuit test_query_quality_domain_signals()
-    lex polylabs/polymind/ce/test
+    lex polyqlabs/qmind/ce/test
 {
     let domain = knowledge_query_quality_domain()
     assert domain.name == "knowledge/query_quality"
@@ -229,7 +229,7 @@ circuit test_query_quality_domain_signals()
 
 #[test]
 circuit test_legacy_governance_domain_signals()
-    lex polylabs/polymind/ce/test
+    lex polyqlabs/qmind/ce/test
 {
     let domain = knowledge_legacy_governance_domain()
     assert domain.name == "knowledge/legacy_governance"
@@ -239,9 +239,9 @@ circuit test_legacy_governance_domain_signals()
 
 #[test]
 circuit test_noise_filter_rules()
-    lex polylabs/polymind/ce/test
+    lex polyqlabs/qmind/ce/test
 {
-    let filter = polymind_noise_filter()
+    let filter = qmind_noise_filter()
     assert filter.rules.len() == 6
     assert filter.rules[0].action == NoiseAction::Suppress as u8
     assert filter.rules[3].action == NoiseAction::Amplify as u8
@@ -249,7 +249,7 @@ circuit test_noise_filter_rules()
 
 #[test]
 circuit test_sme_panels()
-    lex polylabs/polymind/ce/test
+    lex polyqlabs/qmind/ce/test
 {
     let kg_panel = knowledge_graph_quality_panel()
     assert kg_panel.observed_signals.len() == 3
@@ -260,9 +260,9 @@ circuit test_sme_panels()
 }
 
 #[test]
-circuit test_polymind_register_ce()
-    lex polylabs/polymind/ce/test
+circuit test_qmind_register_ce()
+    lex polyqlabs/qmind/ce/test
 {
-    let result = polymind_register_ce("polylabs/polymind")
+    let result = qmind_register_ce("polyqlabs/qmind")
     assert result == true, "CE registration should succeed"
 }

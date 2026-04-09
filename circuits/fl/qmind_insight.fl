@@ -1,12 +1,12 @@
-// Poly Mind Insight — Proactive insight and contradiction detection (v0.11.0)
+// Q Mind Insight — Proactive insight and contradiction detection (v0.11.0)
 //
 // Lex Architecture:
-//   esn/global/org/polylabs/mind/insight
+//   esn/global/org/polyqlabs/mind/insight
 //   ESLM compound intelligence across sessions
 //   ai_feed corpus_insight
 
-import polykit_identity
-import polykit_metering
+import qkit_identity
+import qkit_metering
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ data InsightResult : mind v1 {
     generated_at: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/insight
+    govern lex esn/global/org/polyqlabs/mind/insight
     cortex {
         infer on_write
         on_anomaly alert "mind-team"
@@ -49,7 +49,7 @@ data ContradictionReport : mind v1 {
     resolved: bool,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/insight
+    govern lex esn/global/org/polyqlabs/mind/insight
     cortex {
         infer on_write
         on_anomaly alert "mind-team"
@@ -73,7 +73,7 @@ circuit detect_contradictions(
     signing_sk: bytes(4896),
 ) -> list<ContradictionReport>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/insight
+    lex esn/global/org/polyqlabs/mind/insight
     precision C
     povc true
     observe metrics: [contradiction_scans, contradictions_found, scan_latency_ns]
@@ -129,7 +129,7 @@ circuit detect_contradictions(
         }
     }
 
-    polykit_metering::record_usage(user_id, "mind_insight_contradictions", DimensionValues {
+    qkit_metering::record_usage(user_id, "mind_insight_contradictions", DimensionValues {
         executions: 1, hashes: len(reports), bandwidth: 0,
         storage: 0, observables: 0, proofs: 0, circuits: 1, mpc_sessions: 0,
     })
@@ -143,7 +143,7 @@ circuit suggest_connections(
     max_suggestions: u16,
 ) -> list<ConnectionSuggestion>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/insight
+    lex esn/global/org/polyqlabs/mind/insight
     precision B
     povc true
     observe metrics: [connection_suggestions, suggestions_accepted]
@@ -190,7 +190,7 @@ circuit generate_insight(
     signing_sk: bytes(4896),
 ) -> InsightResult
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/insight
+    lex esn/global/org/polyqlabs/mind/insight
     precision C
     povc true
     observe metrics: [insights_generated, insight_confidence_avg]
@@ -231,7 +231,7 @@ circuit generate_insight(
     let _sig = mldsa_sign(signing_sk, serialize(result))
     eslm_feed(corpus_insight, serialize(result), confidence)
 
-    polykit_metering::record_usage(user_id, "mind_insight_generate", DimensionValues {
+    qkit_metering::record_usage(user_id, "mind_insight_generate", DimensionValues {
         executions: 1, hashes: 1, bandwidth: 0,
         storage: 0, observables: 0, proofs: 0, circuits: 1, mpc_sessions: 0,
     })
@@ -245,7 +245,7 @@ circuit rank_insights(
     max_results: u16,
 ) -> list<InsightResult>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/insight
+    lex esn/global/org/polyqlabs/mind/insight
     precision B
     povc true
     observe metrics: [insight_rank_ops]
@@ -263,7 +263,7 @@ circuit rank_insights(
 
 circuit compute_relevance(docs: list<QueryResultItem>) -> u16
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/insight
+    lex esn/global/org/polyqlabs/mind/insight
     precision B
     povc true
 {
@@ -279,7 +279,7 @@ circuit compute_relevance(docs: list<QueryResultItem>) -> u16
 
 circuit compute_recency_bonus(timestamp: u64) -> u16
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/insight
+    lex esn/global/org/polyqlabs/mind/insight
     precision B
     povc true
 {

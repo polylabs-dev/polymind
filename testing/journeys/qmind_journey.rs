@@ -1,6 +1,6 @@
-//! Poly Mind Journey Tests
+//! Q Mind Journey Tests
 //!
-//! End-to-end journey for Poly Mind: document ingestion, corpus classification,
+//! End-to-end journey for Q Mind: document ingestion, corpus classification,
 //! knowledge graph queries, insight generation, legacy snapshots,
 //! and blind telemetry — following the eStream Convoy pattern.
 
@@ -16,7 +16,7 @@ pub struct PolymindJourney;
 
 impl Journey for PolymindJourney {
     fn name(&self) -> &str {
-        "polymind_e2e"
+        "qmind_e2e"
     }
 
     fn description(&self) -> &str {
@@ -26,13 +26,13 @@ impl Journey for PolymindJourney {
     fn parties(&self) -> Vec<JourneyParty> {
         vec![
             JourneyParty::new("alice")
-                .with_spark_context("poly-mind-v1")
+                .with_spark_context("q-mind-v1")
                 .with_role("knowledge_owner"),
             JourneyParty::new("bob")
-                .with_spark_context("poly-mind-v1")
+                .with_spark_context("q-mind-v1")
                 .with_role("authorized_querier"),
             JourneyParty::new("eslm_engine")
-                .with_spark_context("poly-mind-v1")
+                .with_spark_context("q-mind-v1")
                 .with_role("inference_engine"),
         ]
     }
@@ -44,7 +44,7 @@ impl Journey for PolymindJourney {
                 .party("alice")
                 .action(StepAction::Execute(|ctx: &mut ConvoyContext| {
                     let document_content = ctx.generate_test_payload(1024 * 128); // 128 KiB
-                    let ingest_result = ctx.polymind().ingest(
+                    let ingest_result = ctx.qmind().ingest(
                         "journal-2025.md",
                         &document_content,
                         "markdown",
@@ -59,23 +59,23 @@ impl Journey for PolymindJourney {
                     assert!(ingest_result.chunks_created >= 1);
                     assert!(ingest_result.embeddings_generated);
 
-                    assert_metric_emitted!(ctx, "polymind.document.ingested", {
+                    assert_metric_emitted!(ctx, "qmind.document.ingested", {
                         "format" => "markdown",
                         "chunks" => &ingest_result.chunks_created.to_string(),
                         "encrypted" => "true",
                     });
 
-                    assert_povc_witness!(ctx, "polymind.ingest", {
+                    assert_povc_witness!(ctx, "qmind.ingest", {
                         witness_type: "document_ingestion",
                         document_id: &ingest_result.document_id,
                     });
 
-                    assert_blinded!(ctx, "polymind.document.ingested", {
+                    assert_blinded!(ctx, "qmind.document.ingested", {
                         field: "document_content",
                         blinding: "absent",
                     });
 
-                    assert_blinded!(ctx, "polymind.document.ingested", {
+                    assert_blinded!(ctx, "qmind.document.ingested", {
                         field: "owner_id",
                         blinding: "hmac_sha3",
                     });
@@ -92,7 +92,7 @@ impl Journey for PolymindJourney {
                     let corpus_id = ctx.get::<String>("corpus_id");
                     let document_id = ctx.get::<String>("document_id");
 
-                    let classification = ctx.polymind().classify_corpus(&corpus_id)?;
+                    let classification = ctx.qmind().classify_corpus(&corpus_id)?;
 
                     assert!(!classification.categories.is_empty());
                     assert!(classification.confidence >= 0.5);
@@ -100,23 +100,23 @@ impl Journey for PolymindJourney {
 
                     ctx.set("classification_id", &classification.classification_id);
 
-                    let topic_graph = ctx.polymind().build_topic_graph(&corpus_id)?;
+                    let topic_graph = ctx.qmind().build_topic_graph(&corpus_id)?;
                     assert!(topic_graph.node_count >= 1);
                     assert!(topic_graph.edge_count >= 0);
 
                     ctx.set("graph_id", &topic_graph.graph_id);
 
-                    assert_metric_emitted!(ctx, "polymind.corpus.classified", {
+                    assert_metric_emitted!(ctx, "qmind.corpus.classified", {
                         "categories" => &classification.categories.len().to_string(),
                         "on_device" => "true",
                     });
 
-                    assert_povc_witness!(ctx, "polymind.classify", {
+                    assert_povc_witness!(ctx, "qmind.classify", {
                         witness_type: "corpus_classification",
                         corpus_id: &corpus_id,
                     });
 
-                    assert_blinded!(ctx, "polymind.corpus.classified", {
+                    assert_blinded!(ctx, "qmind.corpus.classified", {
                         field: "category_content",
                         blinding: "hmac_sha3",
                     });
@@ -133,14 +133,14 @@ impl Journey for PolymindJourney {
                     let corpus_id = ctx.get::<String>("corpus_id");
                     let alice_id = ctx.party_id("alice");
 
-                    let grant = ctx.polymind().request_query_access(
+                    let grant = ctx.qmind().request_query_access(
                         &alice_id,
                         &corpus_id,
                         &["semantic_search"],
                     )?;
                     assert!(grant.access_granted);
 
-                    let query_result = ctx.polymind().query(
+                    let query_result = ctx.qmind().query(
                         &corpus_id,
                         "What were the key decisions in 2025?",
                         5, // top-k
@@ -152,22 +152,22 @@ impl Journey for PolymindJourney {
                     assert!(query_result.results.len() <= 5);
                     assert!(query_result.relevance_scores_valid());
 
-                    assert_metric_emitted!(ctx, "polymind.query.executed", {
+                    assert_metric_emitted!(ctx, "qmind.query.executed", {
                         "result_count" => &query_result.results.len().to_string(),
                         "query_type" => "semantic_search",
                     });
 
-                    assert_blinded!(ctx, "polymind.query.executed", {
+                    assert_blinded!(ctx, "qmind.query.executed", {
                         field: "query_text",
                         blinding: "hmac_sha3",
                     });
 
-                    assert_blinded!(ctx, "polymind.query.executed", {
+                    assert_blinded!(ctx, "qmind.query.executed", {
                         field: "querier_id",
                         blinding: "hmac_sha3",
                     });
 
-                    assert_povc_witness!(ctx, "polymind.query", {
+                    assert_povc_witness!(ctx, "qmind.query", {
                         witness_type: "corpus_query",
                         corpus_id: &corpus_id,
                         query_id: &query_result.query_id,
@@ -185,7 +185,7 @@ impl Journey for PolymindJourney {
                     let corpus_id = ctx.get::<String>("corpus_id");
                     let query_id = ctx.get::<String>("query_id");
 
-                    let insight = ctx.polymind().generate_insight(
+                    let insight = ctx.qmind().generate_insight(
                         &corpus_id,
                         &query_id,
                         "summarize_key_themes",
@@ -199,17 +199,17 @@ impl Journey for PolymindJourney {
                     assert!(insight.hallucination_check_passed);
                     assert!(insight.on_device || insight.server_encrypted);
 
-                    assert_metric_emitted!(ctx, "polymind.insight.generated", {
+                    assert_metric_emitted!(ctx, "qmind.insight.generated", {
                         "type" => "summarize_key_themes",
                         "source_citations" => &insight.source_attribution_count.to_string(),
                     });
 
-                    assert_povc_witness!(ctx, "polymind.insight", {
+                    assert_povc_witness!(ctx, "qmind.insight", {
                         witness_type: "insight_generation",
                         insight_id: &insight.insight_id,
                     });
 
-                    assert_blinded!(ctx, "polymind.insight.generated", {
+                    assert_blinded!(ctx, "qmind.insight.generated", {
                         field: "insight_content",
                         blinding: "absent",
                     });
@@ -226,7 +226,7 @@ impl Journey for PolymindJourney {
                     let corpus_id = ctx.get::<String>("corpus_id");
                     let graph_id = ctx.get::<String>("graph_id");
 
-                    let snapshot = ctx.polymind().create_legacy_snapshot(
+                    let snapshot = ctx.qmind().create_legacy_snapshot(
                         &corpus_id,
                         &graph_id,
                         "digital_legacy_v1",
@@ -240,17 +240,17 @@ impl Journey for PolymindJourney {
                     assert!(snapshot.encrypted);
                     assert!(snapshot.recovery_key_escrowed);
 
-                    assert_metric_emitted!(ctx, "polymind.legacy.snapshot_created", {
+                    assert_metric_emitted!(ctx, "qmind.legacy.snapshot_created", {
                         "version" => "digital_legacy_v1",
                         "encrypted" => "true",
                     });
 
-                    assert_povc_witness!(ctx, "polymind.legacy_snapshot", {
+                    assert_povc_witness!(ctx, "qmind.legacy_snapshot", {
                         witness_type: "legacy_capture",
                         snapshot_id: &snapshot.snapshot_id,
                     });
 
-                    assert_blinded!(ctx, "polymind.legacy.snapshot_created", {
+                    assert_blinded!(ctx, "qmind.legacy.snapshot_created", {
                         field: "recovery_key",
                         blinding: "absent",
                     });
@@ -267,7 +267,7 @@ impl Journey for PolymindJourney {
                     let corpus_id = ctx.get::<String>("corpus_id");
                     let graph_id = ctx.get::<String>("graph_id");
 
-                    let graph = ctx.polymind().get_graph(&graph_id)?;
+                    let graph = ctx.qmind().get_graph(&graph_id)?;
                     assert!(graph.node_count >= 1);
                     assert!(graph.integrity_valid);
                     assert!(graph.encrypted_at_rest);
@@ -284,10 +284,10 @@ impl Journey for PolymindJourney {
                     assert!(merkle.series_count >= 1);
 
                     let cortex = CortexVisibility::new(ctx);
-                    cortex.assert_redacted("polymind.corpus", RedactPolicy::ContentFields)?;
-                    cortex.assert_obfuscated("polymind.corpus", ObfuscatePolicy::PartyIdentifiers)?;
+                    cortex.assert_redacted("qmind.corpus", RedactPolicy::ContentFields)?;
+                    cortex.assert_obfuscated("qmind.corpus", ObfuscatePolicy::PartyIdentifiers)?;
 
-                    assert_metric_emitted!(ctx, "polymind.stratum.verified", {
+                    assert_metric_emitted!(ctx, "qmind.stratum.verified", {
                         "csr_tier" => "warm",
                         "chain_intact" => "true",
                     });
@@ -301,7 +301,7 @@ impl Journey for PolymindJourney {
                 .party("alice")
                 .depends_on(&["verify_knowledge_graph"])
                 .action(StepAction::Execute(|ctx: &mut ConvoyContext| {
-                    let telemetry = ctx.streamsight().drain_telemetry("poly-mind-v1");
+                    let telemetry = ctx.streamsight().drain_telemetry("q-mind-v1");
 
                     for event in &telemetry {
                         assert_blinded!(ctx, &event.event_type, {
@@ -326,8 +326,8 @@ impl Journey for PolymindJourney {
                     }
 
                     let cortex = CortexVisibility::new(ctx);
-                    cortex.assert_redacted("polymind", RedactPolicy::ContentFields)?;
-                    cortex.assert_obfuscated("polymind", ObfuscatePolicy::PartyIdentifiers)?;
+                    cortex.assert_redacted("qmind", RedactPolicy::ContentFields)?;
+                    cortex.assert_obfuscated("qmind", ObfuscatePolicy::PartyIdentifiers)?;
 
                     assert!(telemetry.len() >= 6, "Expected at least 6 telemetry events");
 
@@ -337,8 +337,8 @@ impl Journey for PolymindJourney {
                         .collect();
                     for ns in &namespaces {
                         assert!(
-                            ns.starts_with("poly-mind-v1"),
-                            "Telemetry must stay within poly-mind-v1 namespace, found: {}",
+                            ns.starts_with("q-mind-v1"),
+                            "Telemetry must stay within q-mind-v1 namespace, found: {}",
                             ns,
                         );
                     }
@@ -352,16 +352,16 @@ impl Journey for PolymindJourney {
     fn metrics(&self) -> JourneyMetrics {
         JourneyMetrics {
             expected_events: vec![
-                "polymind.document.ingested",
-                "polymind.corpus.classified",
-                "polymind.query.executed",
-                "polymind.insight.generated",
-                "polymind.legacy.snapshot_created",
-                "polymind.stratum.verified",
+                "qmind.document.ingested",
+                "qmind.corpus.classified",
+                "qmind.query.executed",
+                "qmind.insight.generated",
+                "qmind.legacy.snapshot_created",
+                "qmind.stratum.verified",
             ],
             max_duration_ms: 100_000,
             required_povc_witnesses: 6,
-            lex_namespace: "poly-mind-v1",
+            lex_namespace: "q-mind-v1",
         }
     }
 }
@@ -372,9 +372,9 @@ mod tests {
     use estream_test::convoy::ConvoyRunner;
 
     #[tokio::test]
-    async fn run_polymind_journey() {
+    async fn run_qmind_journey() {
         let runner = ConvoyRunner::new()
-            .with_streamsight("poly-mind-v1")
+            .with_streamsight("q-mind-v1")
             .with_stratum()
             .with_cortex()
             .with_eslm();

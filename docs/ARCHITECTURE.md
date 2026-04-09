@@ -1,9 +1,9 @@
-# Poly Mind Architecture
+# Q Mind Architecture
 
 **Version**: 3.0
 **Date**: February 2026
 **Platform**: eStream v0.9.1
-**Upstream**: PolyKit v0.3.0, eStream scatter-cas, graph/DAG constructs
+**Upstream**: QKit v0.3.0, eStream scatter-cas, graph/DAG constructs
 **Build Pipeline**: FastLang (.fl) → FLIR → Rust/WASM codegen → .escd
 **Status**: Concept
 
@@ -11,7 +11,7 @@
 
 ## Overview
 
-Poly Mind is a personal ESLM corpus and digital legacy system. It builds a private, encrypted, scatter-stored knowledge base from user interactions, documents, and cross-product ingestion — using ESLM's persistent SSM state for incremental compound intelligence that grows with the user. All inference runs on-device. Digital legacy enables graduated transfer to designated guardians via K-of-N PQ threshold cryptography, with classification tiers unlocking over time and Incognito-level data auto-purging.
+Q Mind is a personal ESLM corpus and digital legacy system. It builds a private, encrypted, scatter-stored knowledge base from user interactions, documents, and cross-product ingestion — using ESLM's persistent SSM state for incremental compound intelligence that grows with the user. All inference runs on-device. Digital legacy enables graduated transfer to designated guardians via K-of-N PQ threshold cryptography, with classification tiers unlocking over time and Incognito-level data auto-purging.
 
 ### What Changed in v3.0
 
@@ -20,20 +20,20 @@ Poly Mind is a personal ESLM corpus and digital legacy system. It builds a priva
 | Knowledge model | Flat corpus index | `graph knowledge_corpus` with typed overlays |
 | Legacy governance | Threshold config blob | `dag legacy_governance` with acyclic enforcement + ML-DSA-87 signing |
 | Ingestion state | Implicit | `state_machine ingestion_lifecycle` with classification propagation |
-| Circuit format | FLIR YAML (`circuit.flir.yaml`) | FastLang `.fl` with PolyKit profiles |
-| RBAC | Per-circuit annotations | eStream `rbac.fl` composed via PolyKit |
+| Circuit format | FLIR YAML (`circuit.flir.yaml`) | FastLang `.fl` with QKit profiles |
+| RBAC | Per-circuit annotations | eStream `rbac.fl` composed via QKit |
 | Platform | eStream v0.8.1 | eStream v0.9.1 |
 
 ---
 
 ## Zero-Linkage Privacy
 
-Poly Mind operates under the Poly Labs zero-linkage privacy architecture:
+Q Mind operates under the PolyQ Labs zero-linkage privacy architecture:
 
-- **HKDF context**: `poly-mind-v1` — produces `user_id`, signing key, and encryption key that cannot be correlated with any other Poly product
-- **Lex namespace**: `esn/global/org/polylabs/mind` — completely isolated from other product namespaces
-- **StreamSight**: Telemetry stays within `polylabs.mind.*` lex paths
-- **Metering**: Own `metering_graph` instance under `polylabs.mind.metering` lex
+- **HKDF context**: `q-mind-v1` — produces `user_id`, signing key, and encryption key that cannot be correlated with any other Poly product
+- **Lex namespace**: `esn/global/org/polyqlabs/mind` — completely isolated from other product namespaces
+- **StreamSight**: Telemetry stays within `polyqlabs.mind.*` lex paths
+- **Metering**: Own `metering_graph` instance under `polyqlabs.mind.metering` lex
 - **Billing**: Tier checked via blinded token status, not cross-product identity
 
 ---
@@ -46,7 +46,7 @@ Poly Mind operates under the Poly Labs zero-linkage privacy architecture:
 SPARK biometric → Secure Enclave/TEE → master_seed (in WASM, never exposed to JS)
                                             │
                                             ▼
-                                   HKDF-SHA3-256(master_seed, "poly-mind-v1")
+                                   HKDF-SHA3-256(master_seed, "q-mind-v1")
                                             │
                                             ├── ML-DSA-87 signing key pair
                                             │   (corpus manifests, ingestion records, legacy governance)
@@ -61,7 +61,7 @@ SPARK biometric → Secure Enclave/TEE → master_seed (in WASM, never exposed t
 user_id = SHA3-256(spark_ml_dsa_87_public_key)[0..16]   # 16-byte truncated hash
 ```
 
-All stream topics, corpus ownership, and legacy configuration reference this SPARK-derived `user_id`. There are no usernames, emails, or phone numbers. This `user_id` is unique to Poly Mind and cannot be linked to identities in other Poly products.
+All stream topics, corpus ownership, and legacy configuration reference this SPARK-derived `user_id`. There are no usernames, emails, or phone numbers. This `user_id` is unique to Q Mind and cannot be linked to identities in other Q products.
 
 ---
 
@@ -69,7 +69,7 @@ All stream topics, corpus ownership, and legacy configuration reference this SPA
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                      Poly Mind Client                                  │
+│                      Q Mind Client                                  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐            │
 │  │ Chat     │  │ Proactive│  │ Ingest   │  │ Legacy   │            │
 │  │ Interface│  │ Insights │  │ Manager  │  │ Settings │            │
@@ -78,8 +78,8 @@ All stream topics, corpus ownership, and legacy configuration reference this SPA
 │  ┌────┴──────────────┴──────────────┴──────────────┴──────────────┐ │
 │  │  FastLang Circuits (WASM via .escd)                              │ │
 │  │                                                                  │ │
-│  │  polymind_ingest.fl │ polymind_query.fl │ polymind_legacy.fl     │ │
-│  │  polymind_classify.fl │ polymind_metering.fl                     │ │
+│  │  qmind_ingest.fl │ qmind_query.fl │ qmind_legacy.fl     │ │
+│  │  qmind_classify.fl │ qmind_metering.fl                     │ │
 │  │  (all ML-DSA-87 signed .escd packages, StreamSight-annotated)   │ │
 │  └──────────────────────────┬──────────────────────────────────────┘ │
 │                              │                                        │
@@ -88,8 +88,8 @@ All stream topics, corpus ownership, and legacy configuration reference this SPA
 │  │                                                                   │ │
 │  │  graph knowledge_corpus    — documents, concepts, relationships   │ │
 │  │  dag   legacy_governance   — guardian governance, transfer edges  │ │
-│  │  graph metering_graph      — per-app 8D usage (from PolyKit)     │ │
-│  │  graph user_graph          — per-product identity (from PolyKit)  │ │
+│  │  graph metering_graph      — per-app 8D usage (from QKit)     │ │
+│  │  graph user_graph          — per-product identity (from QKit)  │ │
 │  └──────────────────────────┬──────────────────────────────────────┘ │
 │                              │                                        │
 │  ┌──────────────────────────┴──────────────────────────────────────┐ │
@@ -117,8 +117,8 @@ All stream topics, corpus ownership, and legacy configuration reference this SPA
 │  ┌────────────────────────────┴────────────────────────────────────┐ │
 │  │  Lattice-Hosted Circuits                                          │ │
 │  │                                                                   │ │
-│  │  polymind_state_sync.fl │ polymind_legacy_relay.fl                │ │
-│  │  polymind_metering.fl   │ scatter-cas runtime                    │ │
+│  │  qmind_state_sync.fl │ qmind_legacy_relay.fl                │ │
+│  │  qmind_metering.fl   │ scatter-cas runtime                    │ │
 │  └────┬───────────┬──────────────┬─────────────────────────────────┘ │
 │       │           │              │                                    │
 │  ┌────┴─────────────────────────────────────────────────────────┐   │
@@ -136,7 +136,7 @@ All inference runs on-device. The network is used only for scatter-sync of encry
 
 ### How It Differs from Cloud LLMs
 
-| Property | Cloud LLM (GPT, Claude) | ESLM (Poly Mind) |
+| Property | Cloud LLM (GPT, Claude) | ESLM (Q Mind) |
 |----------|------------------------|-------------------|
 | Memory | Context window only | **Persistent SSM state** |
 | Between sessions | Forgets everything | **Remembers everything** |
@@ -168,7 +168,7 @@ Session 100: User asks "What decisions did I make about Alpha?"
 
 ## Graph/DAG Constructs
 
-### Knowledge Corpus Graph (`polymind_knowledge_graph.fl`)
+### Knowledge Corpus Graph (`qmind_knowledge_graph.fl`)
 
 The knowledge base is modeled as a typed graph. Documents, concepts, and relationships are nodes; references, derivations, and contradictions are edges. Overlays provide real-time corpus state (relevance, access patterns, confidence scores) without mutating the base graph.
 
@@ -262,7 +262,7 @@ The `ai_feed corpus_insight` drives ESLM-powered knowledge synthesis: detecting 
 
 Key circuits: `ingest_document`, `create_concept`, `link_reference`, `detect_contradiction`, `query_corpus`, `update_relevance`, `prune_stale`.
 
-### Legacy Governance DAG (`polymind_legacy_dag.fl`)
+### Legacy Governance DAG (`qmind_legacy_dag.fl`)
 
 Digital legacy governance is modeled as a DAG. Guardian designations and transfer authorizations are nodes; threshold-gated transfer edges connect them. The DAG enforces acyclicity — a completed transfer phase cannot be rolled back. Classification tiers unlock over time, and Incognito-level data auto-purges on trigger.
 
@@ -329,7 +329,7 @@ series legacy_series: legacy_governance
 
 Key circuits: `designate_guardian`, `revoke_guardian`, `submit_trigger`, `collect_signature`, `unlock_tier`, `execute_purge`, `verify_alive_proof`.
 
-### Ingestion Lifecycle State Machine (`polymind_ingestion_lifecycle.fl`)
+### Ingestion Lifecycle State Machine (`qmind_ingestion_lifecycle.fl`)
 
 Every ingested item follows a strict lifecycle with classification propagation and anomaly detection.
 
@@ -355,7 +355,7 @@ state_machine ingestion_lifecycle {
 
 State transitions update the `relevance_score` and `last_accessed_ns` overlays on `knowledge_corpus`. The `observe` block flags anomalies (e.g., mass ingestion from unexpected source, unusual classification distribution, rapid relevance decay).
 
-### Legacy Transfer State Machine (`polymind_legacy_lifecycle.fl`)
+### Legacy Transfer State Machine (`qmind_legacy_lifecycle.fl`)
 
 ```fastlang
 state_machine legacy_lifecycle {
@@ -382,11 +382,11 @@ state_machine legacy_lifecycle {
 
 ```
 Poly Products (with user consent):
-├── Poly Messenger: Conversation summaries
-├── Poly Mail: Email headers + body
+├── Q Messenger: Conversation summaries
+├── Q Mail: Email headers + body
 ├── Poly Data: Document content
-├── Poly Calendar: Events, meetings, notes
-└── Poly Pass: (never ingested — too sensitive)
+├── Q Calendar: Events, meetings, notes
+└── Q Pass: (never ingested — too sensitive)
 
 Manual Input:
 ├── Journal entries
@@ -401,7 +401,7 @@ External (optional, Pro tier):
 └── RSS / newsletter digests
 ```
 
-Each ingested item retains the classification of its source product. Poly Messenger content inherits its conversation's classification. Poly Mail content is classified based on sensitivity analysis. Users can override classification upward (more restricted) but not downward.
+Each ingested item retains the classification of its source product. Q Messenger content inherits its conversation's classification. Q Mail content is classified based on sensitivity analysis. Users can override classification upward (more restricted) but not downward.
 
 ### Processing
 
@@ -529,7 +529,7 @@ SOVEREIGN + EPHEMERAL: Auto-purged
 
 ## Privacy Model
 
-### What Poly Labs Cannot Know
+### What PolyQ Labs Cannot Know
 
 | Aspect | Protection |
 |--------|-----------|
@@ -544,7 +544,7 @@ SOVEREIGN + EPHEMERAL: Auto-purged
 ### Incognito Integration
 
 For users in oppressive environments:
-- Poly Mind can be hidden (no visible app presence)
+- Q Mind can be hidden (no visible app presence)
 - Corpus encrypted with deniable encryption (hidden volume)
 - Traffic mimicry for state sync
 - Emergency purge: SPARK biometric + panic gesture = instant wipe
@@ -554,7 +554,7 @@ For users in oppressive environments:
 
 ## Stratum & Cortex Integration
 
-All Poly Mind graph and DAG constructs use the full Stratum+Cortex pattern. Stratum provides typed, overlay-driven graph/DAG storage with CSR layout (hot/warm/cold tiers). Cortex provides AI governance — automatic classification, anomaly detection, redaction, and insight generation — applied declaratively at the `data` node level.
+All Q Mind graph and DAG constructs use the full Stratum+Cortex pattern. Stratum provides typed, overlay-driven graph/DAG storage with CSR layout (hot/warm/cold tiers). Cortex provides AI governance — automatic classification, anomaly detection, redaction, and insight generation — applied declaratively at the `data` node level.
 
 ### Knowledge Corpus Graph (Stratum + Cortex)
 
@@ -608,11 +608,11 @@ All production circuits use the full Stratum annotation set:
 
 ```fastlang
 circuit example_circuit(...)
-    lex esn/global/org/polylabs/mind      // lex namespace isolation
+    lex esn/global/org/polyqlabs/mind      // lex namespace isolation
     status production                       // deployment status
     precision C                             // computational precision
     povc true                               // proof of valid computation
-    profile poly_framework_sensitive        // PolyKit security profile
+    profile poly_framework_sensitive        // QKit security profile
     observe metrics: [...]                  // StreamSight observability
     monitor "..." { ... }                   // threshold monitoring
     invariant "..." { ... }                 // compile-time invariants
@@ -623,7 +623,7 @@ circuit example_circuit(...)
 
 ## scatter-cas Integration
 
-Poly Mind builds on eStream's `scatter-cas` runtime for corpus and state storage. Classification-driven k-of-n erasure coding distributes encrypted data across providers.
+Q Mind builds on eStream's `scatter-cas` runtime for corpus and state storage. Classification-driven k-of-n erasure coding distributes encrypted data across providers.
 
 ### Storage Layers
 
@@ -645,7 +645,7 @@ scatter-cas ObjectStore
 
 ## FastLang Circuits
 
-All circuits are written in FastLang `.fl` using PolyKit profiles. The build pipeline is:
+All circuits are written in FastLang `.fl` using QKit profiles. The build pipeline is:
 
 ```bash
 estream-dev build-wasm-client --from-fl circuits/fl/ --sign key.pem --enforce-budget
@@ -655,18 +655,18 @@ estream-dev build-wasm-client --from-fl circuits/fl/ --sign key.pem --enforce-bu
 
 | Circuit | File | Purpose | Size Budget |
 |---------|------|---------|-------------|
-| `polymind_ingest` | `polymind_ingest.fl` | Content ingestion, classification assignment, embedding | ≤256 KB |
-| `polymind_query` | `polymind_query.fl` | Corpus query, vector search, graph traversal | ≤256 KB |
-| `polymind_classify` | `polymind_classify.fl` | Classification propagation, sensitivity analysis | ≤128 KB |
-| `polymind_legacy` | `polymind_legacy.fl` | Guardian designation, trigger verification, tier unlock | ≤128 KB |
-| `polymind_insight` | `polymind_insight.fl` | Proactive insight generation, contradiction detection | ≤256 KB |
+| `qmind_ingest` | `qmind_ingest.fl` | Content ingestion, classification assignment, embedding | ≤256 KB |
+| `qmind_query` | `qmind_query.fl` | Corpus query, vector search, graph traversal | ≤256 KB |
+| `qmind_classify` | `qmind_classify.fl` | Classification propagation, sensitivity analysis | ≤128 KB |
+| `qmind_legacy` | `qmind_legacy.fl` | Guardian designation, trigger verification, tier unlock | ≤128 KB |
+| `qmind_insight` | `qmind_insight.fl` | Proactive insight generation, contradiction detection | ≤256 KB |
 
-All circuits compose PolyKit:
+All circuits compose QKit:
 ```fastlang
-circuit polymind_ingest(user_id: bytes(16), content: bytes, source: u8, classification: u8) -> bytes(16)
+circuit qmind_ingest(user_id: bytes(16), content: bytes, source: u8, classification: u8) -> bytes(16)
     profile poly_framework_sensitive
-    composes: [polykit_identity, polykit_metering, polykit_sanitize]
-    lex esn/global/org/polylabs/mind/ingest
+    composes: [qkit_identity, qkit_metering, qkit_sanitize]
+    lex esn/global/org/polyqlabs/mind/ingest
     constant_time false
     observe metrics: [ingest_ops, corpus_size_bytes, latency_ns]
 {
@@ -678,9 +678,9 @@ circuit polymind_ingest(user_id: bytes(16), content: bytes, source: u8, classifi
 
 | Circuit | File | Purpose |
 |---------|------|---------|
-| `polymind_state_sync` | `polymind_state_sync.fl` | SSM checkpoint scatter policy enforcement, cross-device sync |
-| `polymind_legacy_relay` | `polymind_legacy_relay.fl` | Guardian notification relay, trigger verification relay |
-| `polymind_metering` | `polymind_metering.fl` | Per-product 8D metering (isolated) |
+| `qmind_state_sync` | `qmind_state_sync.fl` | SSM checkpoint scatter policy enforcement, cross-device sync |
+| `qmind_legacy_relay` | `qmind_legacy_relay.fl` | Guardian notification relay, trigger verification relay |
+| `qmind_metering` | `qmind_metering.fl` | Per-product 8D metering (isolated) |
 
 ---
 
@@ -707,17 +707,17 @@ circuit polymind_ingest(user_id: bytes(16), content: bytes, source: u8, classifi
 
 ## StreamSight Observability
 
-Per-product isolated telemetry within the `polylabs.mind.*` lex namespace.
+Per-product isolated telemetry within the `polyqlabs.mind.*` lex namespace.
 
 ### Telemetry Stream Paths
 
 ```
-lex://estream/apps/polylabs.mind/telemetry
-lex://estream/apps/polylabs.mind/telemetry/sli
-lex://estream/apps/polylabs.mind/metrics/baseline
-lex://estream/apps/polylabs.mind/metrics/deviations
-lex://estream/apps/polylabs.mind/incidents
-lex://estream/apps/polylabs.mind/eslm/corpus_insight
+lex://estream/apps/polyqlabs.mind/telemetry
+lex://estream/apps/polyqlabs.mind/telemetry/sli
+lex://estream/apps/polyqlabs.mind/metrics/baseline
+lex://estream/apps/polyqlabs.mind/metrics/deviations
+lex://estream/apps/polyqlabs.mind/incidents
+lex://estream/apps/polyqlabs.mind/eslm/corpus_insight
 ```
 
 No telemetry path references any other Poly product. StreamSight baseline gate learns per-operation latency distributions and flags deviations. Mind-specific telemetry is minimized — no content or query telemetry, only operational metrics (sync latency, corpus size, ingestion rate).
@@ -728,13 +728,13 @@ No telemetry path references any other Poly product. StreamSight baseline gate l
 
 | Widget ID | Category | Description |
 |-----------|----------|-------------|
-| `polymind-corpus-health` | observability | Corpus size, document count, classification distribution |
-| `polymind-sync-latency` | observability | SSM checkpoint sync latency gauge |
-| `polymind-ingestion-rate` | observability | Ingestion pipeline throughput and status |
-| `polymind-deviation-feed` | observability | StreamSight baseline deviation feed |
-| `polymind-corpus-insight` | observability | ESLM corpus_insight synthesis feed |
-| `polymind-legacy-status` | governance | Guardian status, transfer phase, alive-proof recency |
-| `polymind-classification-dist` | governance | Classification tier distribution across corpus |
+| `qmind-corpus-health` | observability | Corpus size, document count, classification distribution |
+| `qmind-sync-latency` | observability | SSM checkpoint sync latency gauge |
+| `qmind-ingestion-rate` | observability | Ingestion pipeline throughput and status |
+| `qmind-deviation-feed` | observability | StreamSight baseline deviation feed |
+| `qmind-corpus-insight` | observability | ESLM corpus_insight synthesis feed |
+| `qmind-legacy-status` | governance | Guardian status, transfer phase, alive-proof recency |
+| `qmind-classification-dist` | governance | Classification tier distribution across corpus |
 
 ---
 
@@ -751,10 +751,10 @@ Enterprise tier enables shared team knowledge bases where organizational knowled
 
 ### Lex Bridge (Opt-In)
 
-Enterprise admins can opt-in to cross-product visibility via an explicit lex bridge between `esn/global/org/polylabs/mind` and the enterprise admin namespace. The bridge is gated by **k-of-n admin witness attestation** and is revocable.
+Enterprise admins can opt-in to cross-product visibility via an explicit lex bridge between `esn/global/org/polyqlabs/mind` and the enterprise admin namespace. The bridge is gated by **k-of-n admin witness attestation** and is revocable.
 
 ```
-Enterprise admin namespace ←──lex bridge──→ polylabs.mind.{org_id}.*
+Enterprise admin namespace ←──lex bridge──→ polyqlabs.mind.{org_id}.*
                               │
                               └── gated by k-of-n witness attestation
                               └── org-level aggregates only (no individual corpus content)
@@ -773,26 +773,26 @@ Even with the bridge, individual user corpus content and queries are never expos
 | Pro | 10 GB | + External ingestion, API access, cross-product integration, proactive insights | $9.99/mo |
 | Enterprise | Custom | + Team knowledge bases, admin console, RBAC, compliance | Per-seat |
 
-Tier enforcement via PolyKit `metering_graph` + `subscription_lifecycle` state machine. Billing uses blinded payment tokens — backend cannot correlate which SPARK identity subscribes to which tier.
+Tier enforcement via QKit `metering_graph` + `subscription_lifecycle` state machine. Billing uses blinded payment tokens — backend cannot correlate which SPARK identity subscribes to which tier.
 
 ---
 
 ## Directory Structure
 
 ```
-polymind/
+qmind/
 ├── circuits/fl/
-│   ├── polymind_ingest.fl
-│   ├── polymind_query.fl
-│   ├── polymind_classify.fl
-│   ├── polymind_legacy.fl
-│   ├── polymind_insight.fl
-│   ├── polymind_state_sync.fl
-│   ├── polymind_legacy_relay.fl
-│   ├── polymind_metering.fl
+│   ├── qmind_ingest.fl
+│   ├── qmind_query.fl
+│   ├── qmind_classify.fl
+│   ├── qmind_legacy.fl
+│   ├── qmind_insight.fl
+│   ├── qmind_state_sync.fl
+│   ├── qmind_legacy_relay.fl
+│   ├── qmind_metering.fl
 │   └── graphs/
-│       ├── polymind_knowledge_graph.fl
-│       └── polymind_legacy_dag.fl
+│       ├── qmind_knowledge_graph.fl
+│       └── qmind_legacy_dag.fl
 ├── crates/
 │   ├── poly-mind-core/
 │   ├── ingestion/
@@ -828,7 +828,7 @@ polymind/
 ### Phase 2: Intelligence (Q2–Q3 2027)
 - Cross-product integration (Mail, Data, Messenger — with consent)
 - `ai_feed corpus_insight` for proactive synthesis
-- `polymind_insight.fl` contradiction detection
+- `qmind_insight.fl` contradiction detection
 - External ingestion sources (Pro tier)
 - Mobile apps (iOS, Android)
 - API access for Pro tier
@@ -847,7 +847,7 @@ polymind/
 - Voice and image ingestion (on-device transcription/captioning)
 - Team knowledge bases (Enterprise tier)
 - Lex bridge for enterprise cross-product visibility (opt-in, k-of-n gated)
-- Poly Vault HSM integration (SOVEREIGN tier corpus keys in hardware)
+- Q Vault HSM integration (SOVEREIGN tier corpus keys in hardware)
 - FPGA-accelerated on-device inference
 - ESN-AI optimization recommendations
 
@@ -855,6 +855,6 @@ polymind/
 
 ## Related Documents
 
-- [polylabs/business/POLY_MIND_CONCEPT.md] — Detailed concept document
-- [polylabs/business/PRODUCT_FAMILY.md] — Product specifications
-- [polylabs/business/STRATEGY.md] — Overall strategy
+- [polyqlabs/business/POLY_MIND_CONCEPT.md] — Detailed concept document
+- [polyqlabs/business/PRODUCT_FAMILY.md] — Product specifications
+- [polyqlabs/business/STRATEGY.md] — Overall strategy

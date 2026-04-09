@@ -1,7 +1,7 @@
-// Poly Mind Guardian Transfer — K-of-N graduated digital legacy transfer (v0.11.0)
+// Q Mind Guardian Transfer — K-of-N graduated digital legacy transfer (v0.11.0)
 //
 // Lex Architecture:
-//   esn/global/org/polylabs/mind/guardian
+//   esn/global/org/polyqlabs/mind/guardian
 //   Graduated transfer schedule:
 //     PUBLIC    — Day 0   (immediate upon K-of-N threshold)
 //     SENSITIVE — Day 30  (one month cooling period)
@@ -12,9 +12,9 @@
 //   IDLE → TRIGGERED → THRESHOLD_MET → TRANSFERRING → [COMPLETE | PURGED]
 //   Alive proof resets TRIGGERED → IDLE
 
-import polykit_identity
-import polykit_metering
-import polykit_governance
+import qkit_identity
+import qkit_metering
+import qkit_governance
 
 // ── Enums ───────────────────────────────────────────────────────
 
@@ -64,7 +64,7 @@ data GuardianTransfer : mind v1 {
     completed_at: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/guardian
+    govern lex esn/global/org/polyqlabs/mind/guardian
     cortex {
         obfuscate [user_id, trigger_id]
         infer on_write
@@ -84,7 +84,7 @@ data TierTransferBatch : mind v1 {
     signature: bytes(4627),
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/guardian
+    govern lex esn/global/org/polyqlabs/mind/guardian
     cortex {
         redact [guardian_signatures]
         infer on_write
@@ -101,7 +101,7 @@ data SovereignPurgeBatch : mind v1 {
     signature: bytes(4627),
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/guardian
+    govern lex esn/global/org/polyqlabs/mind/guardian
     cortex {
         infer on_write
         on_anomaly alert "mind-legacy"
@@ -150,7 +150,7 @@ circuit initiate_guardian_transfer(
     signing_sk: bytes(4896),
 ) -> GuardianTransfer
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/guardian
+    lex esn/global/org/polyqlabs/mind/guardian
     precision C
     povc true
     constant_time true
@@ -206,7 +206,7 @@ circuit initiate_guardian_transfer(
 
     emit(guardian_transfer_events, transfer)
 
-    polykit_metering::record_usage(user_id, "guardian_transfer_init", DimensionValues {
+    qkit_metering::record_usage(user_id, "guardian_transfer_init", DimensionValues {
         executions: 1, hashes: 1, bandwidth: 0,
         storage: 256, observables: 1, proofs: 1, circuits: 0, mpc_sessions: 0,
     })
@@ -219,7 +219,7 @@ circuit transfer_public_tier(
     signing_sk: bytes(4896),
 ) -> TierTransferBatch
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/guardian
+    lex esn/global/org/polyqlabs/mind/guardian
     precision C
     povc true
     constant_time true
@@ -271,7 +271,7 @@ circuit transfer_sensitive_tier(
     signing_sk: bytes(4896),
 ) -> TierTransferBatch
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/guardian
+    lex esn/global/org/polyqlabs/mind/guardian
     precision C
     povc true
     constant_time true
@@ -321,7 +321,7 @@ circuit transfer_restricted_tier(
     signing_sk: bytes(4896),
 ) -> TierTransferBatch
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/guardian
+    lex esn/global/org/polyqlabs/mind/guardian
     precision C
     povc true
     constant_time true
@@ -371,7 +371,7 @@ circuit purge_sovereign(
     signing_sk: bytes(4896),
 ) -> SovereignPurgeBatch
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/guardian
+    lex esn/global/org/polyqlabs/mind/guardian
     precision C
     povc true
     constant_time true
@@ -421,7 +421,7 @@ circuit purge_sovereign(
 
     emit(sovereign_purge_events, batch)
 
-    polykit_metering::record_usage(transfer.user_id, "guardian_sovereign_purge", DimensionValues {
+    qkit_metering::record_usage(transfer.user_id, "guardian_sovereign_purge", DimensionValues {
         executions: 1, hashes: 1, bandwidth: 0,
         storage: 0, observables: 1, proofs: 1, circuits: 0, mpc_sessions: 0,
     })
@@ -435,7 +435,7 @@ circuit get_transfer_status(
     transfer_id: bytes(16),
 ) -> GuardianTransfer
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/guardian
+    lex esn/global/org/polyqlabs/mind/guardian
     precision B
     observe metrics: [transfer_status_queries]
     wasm_abi [eslite_query]
@@ -447,7 +447,7 @@ circuit get_tier_batches(
     transfer_id: bytes(16),
 ) -> list<TierTransferBatch>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/guardian
+    lex esn/global/org/polyqlabs/mind/guardian
     precision B
     observe metrics: [tier_batch_queries]
     wasm_abi [eslite_scan]
@@ -459,7 +459,7 @@ circuit compute_next_unlock(
     transfer_id: bytes(16),
 ) -> u64
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/guardian
+    lex esn/global/org/polyqlabs/mind/guardian
     precision B
     wasm_abi [eslite_query]
 {

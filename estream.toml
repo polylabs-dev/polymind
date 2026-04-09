@@ -3,7 +3,7 @@ version = "0.22.0"
 min_version = "0.22.0"
 
 [component]
-name = "polymind"
+name = "qmind"
 version = "0.2.0"
 description = "Personal ESLM corpus and digital legacy — on-device inference, memory retrieval, classification, guardian transfer, and RBAC"
 

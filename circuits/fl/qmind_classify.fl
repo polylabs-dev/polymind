@@ -1,12 +1,12 @@
-// Poly Mind Classification — Sensitivity propagation through knowledge graph (v0.11.0)
+// Q Mind Classification — Sensitivity propagation through knowledge graph (v0.11.0)
 //
 // Lex Architecture:
-//   esn/global/org/polylabs/mind/classify
+//   esn/global/org/polyqlabs/mind/classify
 //   Sensitivity flows along edges: if source is RESTRICTED, derived concepts inherit.
 //   Boundary rules prevent arbitrary downgrades.
 
-import polykit_identity
-import polykit_metering
+import qkit_identity
+import qkit_metering
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -49,7 +49,7 @@ data ClassificationAuditEntry : mind v1 {
     timestamp: u64,
 }
     store kv
-    govern lex esn/global/org/polylabs/mind/classify
+    govern lex esn/global/org/polyqlabs/mind/classify
     cortex {
         obfuscate [target_id]
         infer on_write
@@ -65,7 +65,7 @@ circuit propagate_sensitivity(
     signing_sk: bytes(4896),
 ) -> PropagationResult
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/classify
+    lex esn/global/org/polyqlabs/mind/classify
     precision C
     povc true
     constant_time false
@@ -153,7 +153,7 @@ circuit reclassify_document(
     signing_sk: bytes(4896),
 ) -> ClassificationOverride
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind/classify
+    lex esn/global/org/polyqlabs/mind/classify
     precision C
     povc true
     constant_time false
@@ -186,7 +186,7 @@ circuit reclassify_document(
 
 circuit check_sensitivity_boundary(current: u8, proposed: u8) -> bool
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/classify
+    lex esn/global/org/polyqlabs/mind/classify
     precision B
     povc true
     observe metrics: [boundary_checks, boundary_rejections]
@@ -199,7 +199,7 @@ circuit check_sensitivity_boundary(current: u8, proposed: u8) -> bool
 
 circuit audit_classification(entry: ClassificationAuditEntry) -> bool
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind/classify
+    lex esn/global/org/polyqlabs/mind/classify
     precision B
     povc true
     observe metrics: [audit_entries_written]

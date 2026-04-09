@@ -1,7 +1,7 @@
-// Poly Mind Legacy Governance DAG — K-of-N guardian governance with graduated transfer (v0.11.0)
+// Q Mind Legacy Governance DAG — K-of-N guardian governance with graduated transfer (v0.11.0)
 //
 // Lex Architecture:
-//   esn/global/org/polylabs/mind
+//   esn/global/org/polyqlabs/mind
 //   Stratum DAG storage + Cortex AI governance
 //   enforce acyclic, sign ml_dsa_87, attest povc
 //
@@ -10,9 +10,9 @@
 //   Edges: TransferEdge, PurgeEdge, SignatureEdge, DesignationEdge
 //   Overlays: guardian_status, transfer_phase, signatures_collected, alive_proof_ts
 
-import polykit_identity
-import polykit_metering
-import polykit_governance
+import qkit_identity
+import qkit_metering
+import qkit_governance
 
 // ── Enums ───────────────────────────────────────────────────────
 
@@ -60,7 +60,7 @@ data GovernanceNode : mind v1 {
     last_confirmed_at: u64,
 }
     store dag
-    govern lex esn/global/org/polylabs/mind
+    govern lex esn/global/org/polyqlabs/mind
     cortex {
         redact [guardian_keys, trigger_conditions, share_encrypted]
         obfuscate [guardian_id]
@@ -80,7 +80,7 @@ data TriggerNode : mind v1 {
     verification_hash: bytes(32),
 }
     store dag
-    govern lex esn/global/org/polylabs/mind
+    govern lex esn/global/org/polyqlabs/mind
     cortex {
         redact [evidence_hash, verification_hash]
         obfuscate [submitted_by]
@@ -97,7 +97,7 @@ data TransferBatchNode : mind v1 {
     completed_at: u64,
 }
     store dag
-    govern lex esn/global/org/polylabs/mind
+    govern lex esn/global/org/polyqlabs/mind
     cortex {
         infer on_write
         on_suggestion store "cortex/mind/transfer_audit"
@@ -112,7 +112,7 @@ data PurgeBatchNode : mind v1 {
     confirmed_at: u64,
 }
     store dag
-    govern lex esn/global/org/polylabs/mind
+    govern lex esn/global/org/polyqlabs/mind
     cortex {
         infer on_write
         on_anomaly alert "mind-legacy"
@@ -233,7 +233,7 @@ circuit designate_guardian(
     signing_sk: bytes(4896),
 ) -> GovernanceNode
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     constant_time true
@@ -296,7 +296,7 @@ circuit designate_guardian(
 
     scatter_store(concat("share:", governance_id), encrypted_share, "RESTRICTED")
 
-    polykit_metering::record_usage(user_id, "dag_guardian_designate", DimensionValues {
+    qkit_metering::record_usage(user_id, "dag_guardian_designate", DimensionValues {
         executions: 1, hashes: 3, bandwidth: 0,
         storage: 512, observables: 2, proofs: 1, circuits: 0, mpc_sessions: 0,
     })
@@ -310,7 +310,7 @@ circuit revoke_guardian(
     signing_sk: bytes(4896),
 ) -> bool
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     constant_time true
@@ -334,7 +334,7 @@ circuit submit_trigger(
     guardian_sk: bytes(4896),
 ) -> TriggerNode
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     constant_time true
@@ -396,7 +396,7 @@ circuit collect_signature(
     threshold_k: u8,
 ) -> u8
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     constant_time true
@@ -441,7 +441,7 @@ circuit submit_alive_proof(
     signing_sk: bytes(4896),
 ) -> bool
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     constant_time true
@@ -478,7 +478,7 @@ circuit unlock_tier(
     signing_sk: bytes(4896),
 ) -> TransferBatchNode
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     constant_time true
@@ -541,7 +541,7 @@ circuit execute_purge(
     signing_sk: bytes(4896),
 ) -> PurgeBatchNode
     profile poly_framework_sensitive
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     constant_time true
@@ -595,7 +595,7 @@ circuit get_guardian_status(
     governance_id: bytes(16),
 ) -> u8
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision B
     observe metrics: [guardian_status_lookups]
 {
@@ -606,7 +606,7 @@ circuit get_all_guardians(
     graph_id: bytes(32),
 ) -> list<GovernanceNode>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision B
     observe metrics: [guardian_list_queries]
 {
@@ -617,7 +617,7 @@ circuit get_transfer_history(
     trigger_id: bytes(16),
 ) -> list<TransferBatchNode>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision B
     observe metrics: [transfer_history_queries]
 {
@@ -628,7 +628,7 @@ circuit get_purge_history(
     trigger_id: bytes(16),
 ) -> list<PurgeBatchNode>
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision B
     observe metrics: [purge_history_queries]
 {
@@ -640,7 +640,7 @@ circuit snapshot_legacy_state(
     signing_sk: bytes(4896),
 ) -> string
     profile poly_framework_standard
-    lex esn/global/org/polylabs/mind
+    lex esn/global/org/polyqlabs/mind
     precision C
     povc true
     observe metrics: [legacy_snapshots_created]
