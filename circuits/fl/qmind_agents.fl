@@ -1,0 +1,648 @@
+// Q Mind Personal Agents — user-created purpose-built agents (v0.1.0)
+//
+// Lex Architecture:
+//   esn/global/org/polyqlabs/mind/agents
+//   Personal agents with SPARK-derived identity and containment profiles
+//   Each agent has its own lex sub-namespace for provable data isolation
+//
+// Spec: specs/POLYMIND_PERSONAL_AGENTS_SPEC.md
+
+import qkit_identity
+import qkit_metering
+
+// ── Agent Types ───────────────────────────────────────────────
+
+type AgentType = enum {
+    Project,      // 0
+    Domain,       // 1
+    Research,     // 2
+    Guardian,     // 3
+    Growth,       // 4
+}
+
+type AgentStatus = enum {
+    Created,      // 0
+    Active,       // 1
+    Paused,       // 2
+    Modifying,    // 3
+    Archiving,    // 4
+    Terminating,  // 5
+    Terminated,   // 6
+}
+
+type NetworkEgressPolicy = enum {
+    None,             // 0
+    AllowlistOnly,    // 1
+    GovernedProxy,    // 2
+}
+
+// ── Scope & Containment ──────────────────────────────────────
+
+type AgentScope = struct {
+    readable_namespaces: list<string>,
+    writable_namespaces: list<string>,
+    tool_permissions: list<string>,
+    network_egress_policy: u8,
+    max_external_requests_per_day: u32,
+    content_type_filter: list<u8>,
+    temporal_scope_start: u64,
+    temporal_scope_end: u64,
+}
+
+type AgentContainmentProfile = struct {
+    profile_id: bytes(16),
+    lex_scope: string,
+    scope: AgentScope,
+    attestation_interval_ms: u64,
+    povc_threshold: u8,
+    classification_ceiling: u8,
+    max_state_bytes: u64,
+    max_writes_per_tick: u32,
+    bulk_op_povc_required: bool,
+}
+
+// ── Agent Entities ───────────────────────────────────────────
+
+type PersonalAgent = struct {
+    agent_id: bytes(16),
+    user_spark_id: bytes(32),
+    agent_type: u8,
+    display_name: string,
+    purpose: string,
+    containment_profile: AgentContainmentProfile,
+    lex_sub_namespace: string,
+    spark_sub_key: bytes(32),
+    status: u8,
+    created_tick: u64,
+    last_active_tick: u64,
+    total_actions: u64,
+    containment_violations: u32,
+}
+
+type AgentActivityEntry = struct {
+    entry_id: bytes(16),
+    agent_id: bytes(16),
+    action_type: string,
+    description: string,
+    data_accessed_count: u32,
+    data_produced_count: u32,
+    external_communication: bool,
+    timestamp_ns: u64,
+}
+
+type AgentMessage = struct {
+    message_id: bytes(16),
+    agent_id: bytes(16),
+    direction: u8,
+    content_hash: bytes(32),
+    content_type: u8,
+    timestamp_ns: u64,
+}
+
+type AgentDashboardView = struct {
+    agent_id: bytes(16),
+    display_name: string,
+    agent_type: u8,
+    status: u8,
+    scope_summary: string,
+    activity_count_today: u32,
+    last_containment_check_ns: u64,
+    containment_status: u8,
+    data_flow_in_bytes: u64,
+    data_flow_out_bytes: u64,
+    external_comms: u32,
+}
+
+// ── Data: Stored agent records ───────────────────────────────
+
+data PersonalAgentRecord : mind/agents v1 {
+    agent_id: bytes(16),
+    user_spark_id: bytes(32),
+    agent_type: u8,
+    display_name: string,
+    purpose: string,
+    lex_sub_namespace: string,
+    status: u8,
+    created_tick: u64,
+    last_active_tick: u64,
+    total_actions: u64,
+    containment_violations: u32,
+}
+    store kv
+    govern lex esn/global/org/polyqlabs/mind/agents
+    cortex {
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
+
+// ── Streams ──────────────────────────────────────────────────
+
+stream agent_lifecycle_events : mind/agents/lifecycle v1
+    govern lex esn/global/org/polyqlabs/mind/agents
+
+// ── Create Personal Agent ────────────────────────────────────
+
+circuit create_personal_agent(
+    user_spark_id: bytes(32),
+    agent_type: u8,
+    display_name: string,
+    purpose: string,
+    scope: AgentScope,
+    attestation_interval_ms: u64,
+    classification_ceiling: u8,
+    signing_sk: bytes(4896),
+    tick: u64,
+) -> PersonalAgent
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/agents
+    precision C
+    povc true
+    observe metrics: [agents_created, agents_by_type]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [now, mldsa_sign, hkdf_derive]
+    test golden "test_create_agent" {
+        let sk = bytes(4896, 0xBB)
+        let scope = AgentScope {
+            readable_namespaces: ["mind/corpus"],
+            writable_namespaces: ["mind/agents/project_alpha"],
+            tool_permissions: ["search", "summarize"],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 0,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let agent = create_personal_agent(bytes(32, 0x01), 0, "Project Alpha", "Track project tasks", scope, 60000, 2, sk, 1000)
+        assert agent.agent_type == 0
+        assert agent.status == 0
+        assert agent.display_name == "Project Alpha"
+        assert agent.total_actions == 0
+        assert agent.containment_violations == 0
+    }
+{
+    let agent_id = bit_slice(sha3_256(concat(user_spark_id, display_name, agent_type, tick)), 0, 128)
+    let lex_sub_namespace = concat("mind/agents/", bit_slice(sha3_256(concat(user_spark_id, agent_type, display_name)), 0, 64))
+    let spark_sub_key = hkdf_derive(user_spark_id, concat("q-mind-agent-v1:", lex_sub_namespace), 32)
+
+    let profile_id = bit_slice(sha3_256(concat(agent_id, lex_sub_namespace)), 0, 128)
+
+    let containment = AgentContainmentProfile {
+        profile_id: profile_id,
+        lex_scope: lex_sub_namespace,
+        scope: scope,
+        attestation_interval_ms: attestation_interval_ms,
+        povc_threshold: 2,
+        classification_ceiling: classification_ceiling,
+        max_state_bytes: 67108864,
+        max_writes_per_tick: 1000,
+        bulk_op_povc_required: true,
+    }
+
+    let agent = PersonalAgent {
+        agent_id: agent_id,
+        user_spark_id: user_spark_id,
+        agent_type: agent_type,
+        display_name: display_name,
+        purpose: purpose,
+        containment_profile: containment,
+        lex_sub_namespace: lex_sub_namespace,
+        spark_sub_key: spark_sub_key,
+        status: 0,
+        created_tick: tick,
+        last_active_tick: tick,
+        total_actions: 0,
+        containment_violations: 0,
+    }
+
+    let _sig = mldsa_sign(signing_sk, serialize(agent))
+
+    emit agent_lifecycle_events {
+        agent_id: agent_id,
+        event: "created",
+        tick: tick,
+    }
+
+    qkit_metering::record_usage(bit_slice(user_spark_id, 0, 128), "mind_agent_create", DimensionValues {
+        executions: 1, hashes: 2, bandwidth: 0,
+        storage: 512, observables: 1, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    agent
+}
+
+// ── Activate Agent ───────────────────────────────────────────
+
+circuit activate_agent(
+    agent: PersonalAgent,
+    signing_sk: bytes(4896),
+    tick: u64,
+) -> PersonalAgent
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/agents
+    precision C
+    povc true
+    observe metrics: [agents_activated]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [mldsa_sign]
+    test golden "test_activate_agent" {
+        let sk = bytes(4896, 0xBB)
+        let scope = AgentScope {
+            readable_namespaces: ["mind/corpus"],
+            writable_namespaces: [],
+            tool_permissions: ["search"],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 0,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let agent = create_personal_agent(bytes(32, 0x01), 2, "Research Bot", "Research papers", scope, 30000, 1, sk, 1000)
+        assert agent.status == 0
+        let activated = activate_agent(agent, sk, 2000)
+        assert activated.status == 1
+        assert activated.last_active_tick == 2000
+    }
+{
+    assert agent.status == 0, "agent must be in Created state to activate"
+
+    let profile = agent.containment_profile
+    assert profile.max_state_bytes > 0, "containment profile must be configured"
+    assert profile.attestation_interval_ms > 0, "attestation interval must be set"
+
+    let activated = PersonalAgent {
+        agent_id: agent.agent_id,
+        user_spark_id: agent.user_spark_id,
+        agent_type: agent.agent_type,
+        display_name: agent.display_name,
+        purpose: agent.purpose,
+        containment_profile: agent.containment_profile,
+        lex_sub_namespace: agent.lex_sub_namespace,
+        spark_sub_key: agent.spark_sub_key,
+        status: 1,
+        created_tick: agent.created_tick,
+        last_active_tick: tick,
+        total_actions: agent.total_actions,
+        containment_violations: agent.containment_violations,
+    }
+
+    let _sig = mldsa_sign(signing_sk, serialize(activated))
+
+    emit agent_lifecycle_events {
+        agent_id: agent.agent_id,
+        event: "activated",
+        tick: tick,
+    }
+
+    activated
+}
+
+// ── Pause Agent ──────────────────────────────────────────────
+
+circuit pause_agent(
+    agent: PersonalAgent,
+    tick: u64,
+) -> PersonalAgent
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/agents
+    precision B
+    povc true
+    observe metrics: [agents_paused]
+    meters [compute_cycles]
+{
+    assert agent.status == 1, "agent must be Active to pause"
+
+    PersonalAgent {
+        agent_id: agent.agent_id,
+        user_spark_id: agent.user_spark_id,
+        agent_type: agent.agent_type,
+        display_name: agent.display_name,
+        purpose: agent.purpose,
+        containment_profile: agent.containment_profile,
+        lex_sub_namespace: agent.lex_sub_namespace,
+        spark_sub_key: agent.spark_sub_key,
+        status: 2,
+        created_tick: agent.created_tick,
+        last_active_tick: tick,
+        total_actions: agent.total_actions,
+        containment_violations: agent.containment_violations,
+    }
+}
+
+// ── Modify Agent Scope ───────────────────────────────────────
+
+circuit modify_agent_scope(
+    agent: PersonalAgent,
+    new_scope: AgentScope,
+    signing_sk: bytes(4896),
+    tick: u64,
+) -> PersonalAgent
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/agents
+    precision C
+    povc true
+    observe metrics: [scope_modifications, scope_expansions, scope_narrowings]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [mldsa_sign]
+    test golden "test_scope_validation" {
+        let sk = bytes(4896, 0xBB)
+        let wide_scope = AgentScope {
+            readable_namespaces: ["mind/corpus"],
+            writable_namespaces: ["mind/agents/test"],
+            tool_permissions: ["search", "summarize", "classify"],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 10,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let agent = create_personal_agent(bytes(32, 0x01), 1, "Domain Agent", "Domain work", wide_scope, 60000, 2, sk, 1000)
+        let agent = activate_agent(agent, sk, 2000)
+        let reduced_scope = AgentScope {
+            readable_namespaces: ["mind/corpus"],
+            writable_namespaces: [],
+            tool_permissions: ["search"],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 5,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let modified = modify_agent_scope(agent, reduced_scope, sk, 3000)
+        assert len(modified.containment_profile.scope.tool_permissions) == 1
+    }
+{
+    assert agent.status == 1 or agent.status == 2, "agent must be Active or Paused to modify scope"
+
+    let expanding = len(new_scope.writable_namespaces) > len(agent.containment_profile.scope.writable_namespaces)
+        or len(new_scope.tool_permissions) > len(agent.containment_profile.scope.tool_permissions)
+        or new_scope.network_egress_policy > agent.containment_profile.scope.network_egress_policy
+        or new_scope.max_external_requests_per_day > agent.containment_profile.scope.max_external_requests_per_day
+
+    if expanding {
+        let _sig = mldsa_sign(signing_sk, serialize(new_scope))
+    }
+
+    let new_profile = AgentContainmentProfile {
+        profile_id: agent.containment_profile.profile_id,
+        lex_scope: agent.containment_profile.lex_scope,
+        scope: new_scope,
+        attestation_interval_ms: agent.containment_profile.attestation_interval_ms,
+        povc_threshold: agent.containment_profile.povc_threshold,
+        classification_ceiling: agent.containment_profile.classification_ceiling,
+        max_state_bytes: agent.containment_profile.max_state_bytes,
+        max_writes_per_tick: agent.containment_profile.max_writes_per_tick,
+        bulk_op_povc_required: agent.containment_profile.bulk_op_povc_required,
+    }
+
+    emit agent_lifecycle_events {
+        agent_id: agent.agent_id,
+        event: if expanding { "scope_expanded" } else { "scope_narrowed" },
+        tick: tick,
+    }
+
+    PersonalAgent {
+        agent_id: agent.agent_id,
+        user_spark_id: agent.user_spark_id,
+        agent_type: agent.agent_type,
+        display_name: agent.display_name,
+        purpose: agent.purpose,
+        containment_profile: new_profile,
+        lex_sub_namespace: agent.lex_sub_namespace,
+        spark_sub_key: agent.spark_sub_key,
+        status: agent.status,
+        created_tick: agent.created_tick,
+        last_active_tick: tick,
+        total_actions: agent.total_actions,
+        containment_violations: agent.containment_violations,
+    }
+}
+
+// ── Terminate Agent ──────────────────────────────────────────
+
+circuit terminate_agent(
+    agent: PersonalAgent,
+    signing_sk: bytes(4896),
+    tick: u64,
+) -> PersonalAgent
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/agents
+    precision C
+    povc true
+    observe metrics: [agents_terminated]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [mldsa_sign]
+    test golden "test_terminate_lifecycle" {
+        let sk = bytes(4896, 0xBB)
+        let scope = AgentScope {
+            readable_namespaces: [],
+            writable_namespaces: [],
+            tool_permissions: [],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 0,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let agent = create_personal_agent(bytes(32, 0x01), 4, "Growth Agent", "Track growth", scope, 60000, 1, sk, 1000)
+        let agent = activate_agent(agent, sk, 2000)
+        let terminated = terminate_agent(agent, sk, 3000)
+        assert terminated.status == 6
+    }
+{
+    assert agent.status != 6, "agent already terminated"
+
+    let _sig = mldsa_sign(signing_sk, serialize(agent))
+
+    emit agent_lifecycle_events {
+        agent_id: agent.agent_id,
+        event: "terminating",
+        tick: tick,
+    }
+
+    emit agent_lifecycle_events {
+        agent_id: agent.agent_id,
+        event: "terminated",
+        tick: tick,
+    }
+
+    PersonalAgent {
+        agent_id: agent.agent_id,
+        user_spark_id: agent.user_spark_id,
+        agent_type: agent.agent_type,
+        display_name: agent.display_name,
+        purpose: agent.purpose,
+        containment_profile: agent.containment_profile,
+        lex_sub_namespace: agent.lex_sub_namespace,
+        spark_sub_key: agent.spark_sub_key,
+        status: 6,
+        created_tick: agent.created_tick,
+        last_active_tick: tick,
+        total_actions: agent.total_actions,
+        containment_violations: agent.containment_violations,
+    }
+}
+
+// ── Record Agent Activity ────────────────────────────────────
+
+circuit record_agent_activity(
+    agent: PersonalAgent,
+    action_type: string,
+    description: string,
+    data_accessed: u32,
+    data_produced: u32,
+    external_comm: bool,
+    tick: u64,
+) -> AgentActivityEntry
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/agents
+    precision C
+    povc true
+    observe metrics: [agent_activities, external_comms]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [now]
+{
+    assert agent.status == 1, "agent must be Active to record activity"
+
+    let ts = now_ns()
+    let entry_id = bit_slice(sha3_256(concat(agent.agent_id, action_type, ts)), 0, 128)
+
+    qkit_metering::record_usage(bit_slice(agent.user_spark_id, 0, 128), "mind_agent_activity", DimensionValues {
+        executions: 1, hashes: 1, bandwidth: 0,
+        storage: 128, observables: 1, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    AgentActivityEntry {
+        entry_id: entry_id,
+        agent_id: agent.agent_id,
+        action_type: action_type,
+        description: description,
+        data_accessed_count: data_accessed,
+        data_produced_count: data_produced,
+        external_communication: external_comm,
+        timestamp_ns: ts,
+    }
+}
+
+// ── Agent Dashboard ──────────────────────────────────────────
+
+circuit get_agent_dashboard(
+    agent: PersonalAgent,
+    activities_today: list<AgentActivityEntry>,
+    last_containment_tick: u64,
+    containment_ok: bool,
+) -> AgentDashboardView
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/agents
+    precision B
+    povc true
+    observe metrics: [dashboard_views]
+    test golden "test_dashboard_view" {
+        let sk = bytes(4896, 0xBB)
+        let scope = AgentScope {
+            readable_namespaces: ["mind/corpus", "mind/documents"],
+            writable_namespaces: ["mind/agents/research"],
+            tool_permissions: ["search", "summarize"],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 0,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let agent = create_personal_agent(bytes(32, 0x01), 2, "Research Bot", "Research papers", scope, 30000, 1, sk, 1000)
+        let agent = activate_agent(agent, sk, 2000)
+        let dashboard = get_agent_dashboard(agent, [], 2000, true)
+        assert dashboard.display_name == "Research Bot"
+        assert dashboard.agent_type == 2
+        assert dashboard.status == 1
+        assert dashboard.containment_status == 0
+        assert dashboard.activity_count_today == 0
+    }
+{
+    let scope_desc = concat(
+        "r:", len(agent.containment_profile.scope.readable_namespaces),
+        " w:", len(agent.containment_profile.scope.writable_namespaces),
+        " tools:", len(agent.containment_profile.scope.tool_permissions),
+    )
+
+    let data_in = 0
+    let data_out = 0
+    let ext_comms = 0
+
+    for activity in activities_today {
+        data_in = data_in + activity.data_accessed_count
+        data_out = data_out + activity.data_produced_count
+        if activity.external_communication { ext_comms = ext_comms + 1 }
+    }
+
+    AgentDashboardView {
+        agent_id: agent.agent_id,
+        display_name: agent.display_name,
+        agent_type: agent.agent_type,
+        status: agent.status,
+        scope_summary: scope_desc,
+        activity_count_today: len(activities_today),
+        last_containment_check_ns: last_containment_tick,
+        containment_status: if containment_ok { 0 } else { 1 },
+        data_flow_in_bytes: data_in,
+        data_flow_out_bytes: data_out,
+        external_comms: ext_comms,
+    }
+}
+
+// ── Validate Agent Action ────────────────────────────────────
+
+circuit validate_agent_action(
+    agent: PersonalAgent,
+    target_namespace: string,
+    action_type: string,
+    is_external: bool,
+) -> bool
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/agents
+    precision A
+    povc true
+    observe metrics: [action_validations, action_rejections]
+{
+    if agent.status != 1 { return false }
+
+    if is_external {
+        if agent.containment_profile.scope.network_egress_policy == 0 { return false }
+    }
+
+    let namespace_allowed = false
+    for ns in agent.containment_profile.scope.readable_namespaces {
+        if starts_with(target_namespace, ns) { namespace_allowed = true }
+    }
+    for ns in agent.containment_profile.scope.writable_namespaces {
+        if starts_with(target_namespace, ns) { namespace_allowed = true }
+    }
+
+    if !namespace_allowed { return false }
+
+    let tool_allowed = false
+    for perm in agent.containment_profile.scope.tool_permissions {
+        if perm == action_type { tool_allowed = true }
+    }
+
+    tool_allowed
+}
+
+// ── List User Agents ─────────────────────────────────────────
+
+circuit list_user_agents(
+    user_spark_id: bytes(32),
+    agents: list<PersonalAgent>,
+) -> list<PersonalAgent>
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/agents
+    precision A
+    povc true
+{
+    let result = []
+    for agent in agents {
+        if agent.user_spark_id == user_spark_id {
+            result.push(agent)
+        }
+    }
+    result
+}

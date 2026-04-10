@@ -25,7 +25,7 @@ const POLYMIND_VERSION_MINOR: u32 = 1
 const POLYMIND_VERSION_PATCH: u32 = 0
 const POLYMIND_APP_LEX: string = "polyqlabs/qmind"
 const POLYMIND_VERSION_STR: string = "0.1.0"
-const POLYMIND_MODULE_COUNT: u64 = 14
+const POLYMIND_MODULE_COUNT: u64 = 15
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Internal helper — common ModuleNode construction
@@ -76,7 +76,7 @@ circuit make_qmind_module(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// §1  Module Definitions — 13 ModuleNodes
+// §1  Module Definitions — 14 ModuleNodes
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ── qmind_ingest ── content ingestion pipeline ────────────────────────────
@@ -247,8 +247,20 @@ circuit qmind_growth_module() -> ModuleNode
             storage: 20000, observe_events: 400, proofs: 20, consensus: 5, memory: 16777216 })
 }
 
+// ── qmind_agents ── personal agent creation, lifecycle, containment ────────
+
+circuit qmind_agents_module() -> ModuleNode
+    lex polyqlabs/qmind  @status draft  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_qmind_module("qmind_agents", AperturePartition::Backend as u8,
+        SLATier::Premium as u8,
+        ResourceBudget8D { execution: 40000, hash_ops: 1000, bandwidth: 10000,
+            storage: 50000, observe_events: 500, proofs: 50, consensus: 20, memory: 33554432 })
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// §2  Graph Registration (14 modules)
+// §2  Graph Registration (15 modules)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 circuit qmind_app_graph_register(graph: CsrStorage) -> CsrStorage
@@ -274,6 +286,7 @@ circuit qmind_app_graph_register(graph: CsrStorage) -> CsrStorage
     let (g, id_kg)           = module_graph_add_module(g, knowledge_graph_module())
     let (g, id_dag)          = module_graph_add_module(g, legacy_dag_module())
     let (g, id_growth)       = module_graph_add_module(g, qmind_growth_module())
+    let (g, id_agents)       = module_graph_add_module(g, qmind_agents_module())
 
     let ver = POLYMIND_VERSION_STR
     let vc = ">=" ++ POLYMIND_VERSION_STR
@@ -386,6 +399,20 @@ circuit qmind_app_graph_register(graph: CsrStorage) -> CsrStorage
         target_module: "qmind_classify", target_version_constraint: vc, metadata: bytes(0),
     }, id_growth, id_classify)
 
+    // qmind_agents -> knowledge_graph, qmind_rbac, qmind_growth
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "qmind_agents", source_version: ver,
+        target_module: "knowledge_graph", target_version_constraint: vc, metadata: bytes(0),
+    }, id_agents, id_kg)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "qmind_agents", source_version: ver,
+        target_module: "qmind_rbac", target_version_constraint: vc, metadata: bytes(0),
+    }, id_agents, id_rbac)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "qmind_agents", source_version: ver,
+        target_module: "qmind_growth", target_version_constraint: vc, metadata: bytes(0),
+    }, id_agents, id_growth)
+
     g
 }
 
@@ -436,6 +463,18 @@ circuit qmind_register_bridge_edges(graph: CsrStorage) -> CsrStorage
         }) as bytes
         let (g2, bid_r) = graph_add_node(g, 0xB0, bridge_resonance)
         g = graph_add_edge(g2, id_growth, bid_r, EDGE_BRIDGE_TO, bridge_resonance)
+    }
+
+    // BRIDGE_TO: qmind_agents -> eStream Containment (agent containment profiles)
+    let id_agents = find_qmind_module_id(g, "qmind_agents")
+    if id_agents != 0xFFFFFFFF as u32 {
+        let bridge_containment = serialize(PolymindBridgeEdgeData {
+            source_lex: POLYMIND_APP_LEX, source_module: "qmind_agents",
+            target_lex: "esn/global/containment", target_module: "behavioral_envelope",
+            bridge_type: "agent_containment_profile", timestamp_ms: 0,
+        }) as bytes
+        let (g2, bid_c) = graph_add_node(g, 0xB0, bridge_containment)
+        g = graph_add_edge(g2, id_agents, bid_c, EDGE_BRIDGE_TO, bridge_containment)
     }
 
     // BRIDGE_TO: qmind_document_ingest -> PolyDocs parser
@@ -493,8 +532,8 @@ circuit test_qmind_app_graph_register()
 {
     let empty = CsrStorage::new(4096)
     let g = qmind_app_graph_register(empty)
-    assert g.num_nodes == 14, "expected 14 modules"
-    assert g.num_edges >= 22, "expected at least 22 REQUIRES edges"
+    assert g.num_nodes == 15, "expected 15 modules"
+    assert g.num_edges >= 25, "expected at least 25 REQUIRES edges"
 }
 
 #[test]
@@ -504,7 +543,7 @@ circuit test_qmind_bridge_edges()
     let empty = CsrStorage::new(4096)
     let g = qmind_app_graph_register(empty)
     let g = qmind_register_bridge_edges(g)
-    assert g.num_nodes == 17, "expected 14 modules + 3 bridge nodes"
+    assert g.num_nodes == 19, "expected 15 modules + 4 bridge nodes"
 }
 
 #[test]

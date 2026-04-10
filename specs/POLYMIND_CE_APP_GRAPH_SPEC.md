@@ -2,18 +2,18 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | v0.2.0 |
+| **Version** | v0.3.0 |
 | **Status** | Draft |
 | **Lex Namespace** | `polyqlabs/qmind` |
 | **App Graph** | `circuits/fl/qmind_app_graph.fl` |
 | **CE Meaning** | `circuits/fl/qmind_meaning.fl` |
-| **Upstream Dependency** | eStream v0.27.0+ (Intelligence Substrate), QKit v0.1.0+ |
+| **Upstream Dependency** | eStream v0.27.0+ (Intelligence Substrate, Containment Proof), QKit v0.1.0+ |
 
 ---
 
-## 1. App Graph — 14 Modules
+## 1. App Graph — 15 Modules
 
-PolyMind registers 14 FL circuit modules into a single App Graph under `polyqlabs/qmind`:
+PolyMind registers 15 FL circuit modules into a single App Graph under `polyqlabs/qmind`:
 
 | Module | Partition | SLA | Description |
 |--------|-----------|-----|-------------|
@@ -31,6 +31,7 @@ PolyMind registers 14 FL circuit modules into a single App Graph under `polyqlab
 | `knowledge_graph` | Backend | Premium | Stratum CSR property graph — entities, concepts, relationships |
 | `legacy_dag` | Backend | Premium | Merkle-linked DAG for legacy artifact provenance and ordering |
 | `qmind_growth` | Backend | Standard | Enneagram-centered personal growth tracking, Resonance integration |
+| `qmind_agents` | Backend | Premium | Personal agent creation, lifecycle, containment, dashboard (v0.3.0) |
 
 ### Intra-Graph Dependencies
 
@@ -45,6 +46,7 @@ qmind_legacy -> legacy_dag, qmind_rbac, knowledge_graph
 qmind_metering -> qmind_rbac
 qmind_platform_health -> qmind_metering, qmind_rbac
 qmind_growth -> knowledge_graph, qmind_insight, qmind_classify
+qmind_agents -> knowledge_graph, qmind_rbac, qmind_growth
 ```
 
 ---
@@ -98,6 +100,19 @@ Tracks personality-aware growth trajectory and content alignment.
 | `resonance_growth_link_rate` | gauge | Fraction of Resonance captures relevant to growth actions |
 | `health_level_trajectory` | gauge | Direction of health level change (smoothed) |
 | `framework_cross_validation` | gauge | Agreement between frameworks on growth areas |
+
+### 2.5 `knowledge/personal_agents` (v0.3.0)
+
+Tracks personal agent lifecycle, containment, and effectiveness.
+
+| Signal | Type | Description |
+|--------|------|-------------|
+| `active_agent_count` | gauge | Number of currently active personal agents |
+| `agent_action_velocity` | gauge | Agent actions per day (rolling 24h window) |
+| `containment_violations` | counter | Containment boundary violations detected |
+| `scope_utilization_mean` | gauge | Mean utilization of granted scope across agents (0-10000 bps) |
+| `agent_effectiveness` | gauge | Ratio of agent actions that led to user-acknowledged value |
+| `external_comm_requests` | counter | External communication requests (all should be SPARK-consented) |
 
 ---
 
@@ -155,6 +170,14 @@ Evaluates personal growth trajectory and content alignment with growth direction
 - **Trigger**: Monthly scheduled + on-demand when `disintegration_warning` exceeds threshold
 - **Output**: Growth trajectory assessment, recommended focus shifts, integration milestone recognition, stress management suggestions, cross-framework agreement analysis
 
+### 4.5 Personal Agent Health Panel (v0.3.0)
+
+Evaluates agent containment integrity and effectiveness.
+
+- **Metrics observed**: `active_agent_count`, `containment_violations`, `scope_utilization_mean`, `agent_effectiveness`, `external_comm_requests`
+- **Trigger**: Daily scheduled + immediate on any `containment_violations` increment
+- **Output**: Containment integrity score (0-100), scope optimization recommendations, agent effectiveness ranking, containment violation forensics
+
 ---
 
 ## 5. Bridge Edges
@@ -179,7 +202,17 @@ Evaluates personal growth trajectory and content alignment with growth direction
 | **Shared Fields** | `resonance_id`, `topic_sentiments`, `overall_impact_bps` |
 | **Direction** | Inbound — eStream Resonance events trigger growth action linking |
 
-### 5.3 PolyDocs Document Ingest Bridge
+### 5.3 eStream Containment Agent Bridge (v0.3.0)
+
+| Field | Value |
+|-------|-------|
+| **Source** | `polyqlabs/qmind` → `qmind_agents` |
+| **Target** | `esn/global/containment` → `behavioral_envelope` |
+| **Scope** | Platform |
+| **Shared Fields** | `agent_containment_profile`, `behavioral_envelope`, `boundary_events` |
+| **Direction** | Bilateral — Q Mind agents consume eStream containment profiles, boundary events flow back for dashboard |
+
+### 5.4 PolyDocs Document Ingest Bridge
 
 | Field | Value |
 |-------|-------|
@@ -209,4 +242,5 @@ PolyMind may optionally bridge to Paragon Foundation for family office deploymen
 
 - `paragon/foundation` → Entity graph for beneficiary resolution
 - `paragon/foundation` → Compliance framework for legacy regulatory requirements
+- `paragon/aegis` → Enterprise agent governance bridge (employees can have personal agents governed by enterprise policy)
 - Bridge is opt-in per deployment; PolyMind operates independently without Paragon
