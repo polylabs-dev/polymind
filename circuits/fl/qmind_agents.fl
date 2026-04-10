@@ -308,6 +308,25 @@ circuit pause_agent(
     povc true
     observe metrics: [agents_paused]
     meters [compute_cycles]
+    test golden "test_pause_active_agent" {
+        let sk = bytes(4896, 0xBB)
+        let scope = AgentScope {
+            readable_namespaces: ["mind/corpus"],
+            writable_namespaces: [],
+            tool_permissions: ["search"],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 0,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let agent = create_personal_agent(bytes(32, 0x01), 0, "Test Agent", "Test", scope, 60000, 2, sk, 1000)
+        let agent = activate_agent(agent, sk, 2000)
+        assert agent.status == 1
+        let paused = pause_agent(agent, 3000)
+        assert paused.status == 2
+        assert paused.last_active_tick == 3000
+    }
 {
     assert agent.status == 1, "agent must be Active to pause"
 
@@ -500,6 +519,26 @@ circuit record_agent_activity(
     observe metrics: [agent_activities, external_comms]
     meters [compute_cycles, memory_bytes]
     wasm_abi [now]
+    test golden "test_record_activity" {
+        let sk = bytes(4896, 0xBB)
+        let scope = AgentScope {
+            readable_namespaces: ["mind/corpus"],
+            writable_namespaces: [],
+            tool_permissions: ["search"],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 0,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let agent = create_personal_agent(bytes(32, 0x01), 2, "Research Bot", "Research", scope, 30000, 1, sk, 1000)
+        let agent = activate_agent(agent, sk, 2000)
+        let entry = record_agent_activity(agent, "search", "Searched papers on PQC", 5, 1, false, 3000)
+        assert entry.action_type == "search"
+        assert entry.data_accessed_count == 5
+        assert entry.data_produced_count == 1
+        assert entry.external_communication == false
+    }
 {
     assert agent.status == 1, "agent must be Active to record activity"
 
@@ -602,6 +641,54 @@ circuit validate_agent_action(
     precision A
     povc true
     observe metrics: [action_validations, action_rejections]
+    test golden "test_allowed_action_passes" {
+        let sk = bytes(4896, 0xBB)
+        let scope = AgentScope {
+            readable_namespaces: ["mind/corpus"],
+            writable_namespaces: ["mind/agents/test"],
+            tool_permissions: ["search", "summarize"],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 0,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let agent = create_personal_agent(bytes(32, 0x01), 0, "Test", "Test", scope, 60000, 2, sk, 1000)
+        let agent = activate_agent(agent, sk, 2000)
+        assert validate_agent_action(agent, "mind/corpus", "search", false) == true
+    }
+    test golden "test_disallowed_namespace_rejected" {
+        let sk = bytes(4896, 0xBB)
+        let scope = AgentScope {
+            readable_namespaces: ["mind/corpus"],
+            writable_namespaces: [],
+            tool_permissions: ["search"],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 0,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let agent = create_personal_agent(bytes(32, 0x01), 0, "Test", "Test", scope, 60000, 2, sk, 1000)
+        let agent = activate_agent(agent, sk, 2000)
+        assert validate_agent_action(agent, "mind/secrets", "search", false) == false
+    }
+    test golden "test_external_rejected_when_none_policy" {
+        let sk = bytes(4896, 0xBB)
+        let scope = AgentScope {
+            readable_namespaces: ["mind/corpus"],
+            writable_namespaces: [],
+            tool_permissions: ["search"],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 0,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let agent = create_personal_agent(bytes(32, 0x01), 0, "Test", "Test", scope, 60000, 2, sk, 1000)
+        let agent = activate_agent(agent, sk, 2000)
+        assert validate_agent_action(agent, "mind/corpus", "search", true) == false
+    }
 {
     if agent.status != 1 { return false }
 
@@ -637,6 +724,24 @@ circuit list_user_agents(
     lex esn/global/org/polyqlabs/mind/agents
     precision A
     povc true
+    test golden "test_list_filters_by_user" {
+        let sk = bytes(4896, 0xBB)
+        let scope = AgentScope {
+            readable_namespaces: [],
+            writable_namespaces: [],
+            tool_permissions: [],
+            network_egress_policy: 0,
+            max_external_requests_per_day: 0,
+            content_type_filter: [],
+            temporal_scope_start: 0,
+            temporal_scope_end: 0,
+        }
+        let a1 = create_personal_agent(bytes(32, 0x01), 0, "Agent A", "A", scope, 60000, 1, sk, 1000)
+        let a2 = create_personal_agent(bytes(32, 0x02), 1, "Agent B", "B", scope, 60000, 1, sk, 2000)
+        let a3 = create_personal_agent(bytes(32, 0x01), 2, "Agent C", "C", scope, 60000, 1, sk, 3000)
+        let results = list_user_agents(bytes(32, 0x01), [a1, a2, a3])
+        assert len(results) == 2
+    }
 {
     let result = []
     for agent in agents {
