@@ -2,18 +2,18 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | v0.1.0 |
+| **Version** | v0.2.0 |
 | **Status** | Draft |
 | **Lex Namespace** | `polyqlabs/qmind` |
 | **App Graph** | `circuits/fl/qmind_app_graph.fl` |
 | **CE Meaning** | `circuits/fl/qmind_meaning.fl` |
-| **Upstream Dependency** | eStream v0.22.0+, QKit v0.1.0+ |
+| **Upstream Dependency** | eStream v0.27.0+ (Intelligence Substrate), QKit v0.1.0+ |
 
 ---
 
-## 1. App Graph — 13 Modules
+## 1. App Graph — 14 Modules
 
-PolyMind registers 13 FL circuit modules into a single App Graph under `polyqlabs/qmind`:
+PolyMind registers 14 FL circuit modules into a single App Graph under `polyqlabs/qmind`:
 
 | Module | Partition | SLA | Description |
 |--------|-----------|-----|-------------|
@@ -30,6 +30,7 @@ PolyMind registers 13 FL circuit modules into a single App Graph under `polyqlab
 | `qmind_legacy` | Backend | Premium | Digital estate assembly, time-locked releases, beneficiary routing |
 | `knowledge_graph` | Backend | Premium | Stratum CSR property graph — entities, concepts, relationships |
 | `legacy_dag` | Backend | Premium | Merkle-linked DAG for legacy artifact provenance and ordering |
+| `qmind_growth` | Backend | Standard | Enneagram-centered personal growth tracking, Resonance integration |
 
 ### Intra-Graph Dependencies
 
@@ -43,6 +44,7 @@ qmind_guardian -> qmind_rbac, qmind_legacy
 qmind_legacy -> legacy_dag, qmind_rbac, knowledge_graph
 qmind_metering -> qmind_rbac
 qmind_platform_health -> qmind_metering, qmind_rbac
+qmind_growth -> knowledge_graph, qmind_insight, qmind_classify
 ```
 
 ---
@@ -83,6 +85,19 @@ Tracks guardian transfer patterns and digital estate health.
 | `digital_estate_health` | gauge | Completeness score: beneficiary coverage, artifact freshness, policy currency |
 | `legacy_artifact_count` | gauge | Total time-locked and released legacy artifacts |
 | `policy_violation_count` | counter | Guardian policy violations detected per evaluation cycle |
+
+### 2.4 `knowledge/personal_growth` (v0.2.0)
+
+Tracks personality-aware growth trajectory and content alignment.
+
+| Signal | Type | Description |
+|--------|------|-------------|
+| `growth_action_velocity` | gauge | Growth actions progressed per month |
+| `integration_progress` | gauge | Progress toward Enneagram integration type (0-10000 bps) |
+| `disintegration_warning` | gauge | Stress indicator — movement toward disintegration type |
+| `resonance_growth_link_rate` | gauge | Fraction of Resonance captures relevant to growth actions |
+| `health_level_trajectory` | gauge | Direction of health level change (smoothed) |
+| `framework_cross_validation` | gauge | Agreement between frameworks on growth areas |
 
 ---
 
@@ -132,6 +147,14 @@ Evaluates whether the digital estate is well-governed and transfer-ready.
 - **Trigger**: Monthly scheduled + on-demand when guardian designation changes
 - **Output**: Estate readiness score (0–100), policy gap analysis, beneficiary coverage report
 
+### 4.4 Personal Growth Quality Panel (v0.2.0)
+
+Evaluates personal growth trajectory and content alignment with growth directions.
+
+- **Metrics observed**: `growth_action_velocity`, `integration_progress`, `disintegration_warning`, `resonance_growth_link_rate`, `health_level_trajectory`
+- **Trigger**: Monthly scheduled + on-demand when `disintegration_warning` exceeds threshold
+- **Output**: Growth trajectory assessment, recommended focus shifts, integration milestone recognition, stress management suggestions, cross-framework agreement analysis
+
 ---
 
 ## 5. Bridge Edges
@@ -146,7 +169,17 @@ Evaluates whether the digital estate is well-governed and transfer-ready.
 | **Shared Fields** | `classification_result`, `domain_tags`, `confidence_score` |
 | **Direction** | Bilateral — PolyMind sends content, QKit returns classification |
 
-### 5.2 PolyDocs Document Ingest Bridge
+### 5.2 eStream Resonance Growth Bridge (v0.2.0)
+
+| Field | Value |
+|-------|-------|
+| **Source** | `polyqlabs/qmind` → `qmind_growth` |
+| **Target** | `esn/global/intelligence/ai` → `resonance` |
+| **Scope** | Platform |
+| **Shared Fields** | `resonance_id`, `topic_sentiments`, `overall_impact_bps` |
+| **Direction** | Inbound — eStream Resonance events trigger growth action linking |
+
+### 5.3 PolyDocs Document Ingest Bridge
 
 | Field | Value |
 |-------|-------|

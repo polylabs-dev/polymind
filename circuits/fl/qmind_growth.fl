@@ -1,0 +1,705 @@
+// Q Mind Personal Growth — Enneagram-centered growth tracking (v0.2.0)
+//
+// Lex Architecture:
+//   esn/global/org/polyqlabs/mind/growth
+//   Personality profiles, growth actions, evidence, trajectory snapshots
+//   Resonance-growth linking for content-driven development
+//
+// Spec: specs/POLYMIND_PERSONAL_GROWTH_SPEC.md
+
+import qkit_identity
+import qkit_metering
+
+// ── Enneagram Types ─────────────────────────────────────────────
+
+type EnneagramType = enum {
+    Reformer,     // 1
+    Helper,       // 2
+    Achiever,     // 3
+    Individualist, // 4
+    Investigator, // 5
+    Loyalist,     // 6
+    Enthusiast,   // 7
+    Challenger,   // 8
+    Peacemaker,   // 9
+}
+
+type InstinctualVariant = enum {
+    SelfPreservation,
+    Sexual,
+    Social,
+}
+
+type GrowthDomain = enum {
+    IntegrationDirection,
+    WingDevelopment,
+    InstinctualBalance,
+    HealthLevel,
+    EmotionalIntelligence,
+    RelationalCapacity,
+    SelfAwareness,
+    StressManagement,
+    PurposeClarity,
+    CliftonStrengthsDev,
+    WorkingGeniusGrowth,
+    Custom,
+}
+
+type AssessmentSource = enum {
+    Professional,
+    SelfAssessedGuided,
+    SelfAssessedDeclared,
+    BehavioralInference,
+}
+
+type EvidenceType = enum {
+    SelfReport,
+    Behavioral,
+    Resonance,
+    Insight,
+    Feedback,
+}
+
+type GrowthActionStatus = enum {
+    Suggested,
+    Accepted,
+    InProgress,
+    Completed,
+    Declined,
+}
+
+// ── Data: Stored growth entities ────────────────────────────────
+
+data EnneagramProfileRecord : mind/growth v1 {
+    user_id: bytes(16),
+    core_type: u8,
+    wing: u8,
+    integration_type: u8,
+    disintegration_type: u8,
+    tritype_head: u8,
+    tritype_heart: u8,
+    tritype_gut: u8,
+    instinctual_primary: u8,
+    instinctual_secondary: u8,
+    instinctual_tertiary: u8,
+    health_level: u8,
+    assessment_source: u8,
+    confidence_bps: u16,
+    assessed_at: u64,
+    updated_at: u64,
+}
+    store kv
+    govern lex esn/global/org/polyqlabs/mind/growth
+    cortex {
+        infer on_write
+        on_anomaly alert "mind-team"
+    }
+
+data ComplementaryProfileRecord : mind/growth v1 {
+    user_id: bytes(16),
+    mbti_type: string,
+    mbti_cognitive_stack: string,
+    clifton_top_5: string,
+    clifton_executing_bps: u16,
+    clifton_influencing_bps: u16,
+    clifton_relationship_bps: u16,
+    clifton_strategic_bps: u16,
+    disc_d_bps: u16,
+    disc_i_bps: u16,
+    disc_s_bps: u16,
+    disc_c_bps: u16,
+    disc_natural: string,
+    disc_adapted: string,
+    wg_genius_1: string,
+    wg_genius_2: string,
+    wg_competency_1: string,
+    wg_competency_2: string,
+    wg_frustration_1: string,
+    wg_frustration_2: string,
+    belbin_preferred: string,
+    kolbe_ff: u8,
+    kolbe_ft: u8,
+    kolbe_qs: u8,
+    kolbe_im: u8,
+    updated_at: u64,
+}
+    store kv
+    govern lex esn/global/org/polyqlabs/mind/growth
+
+data GrowthActionRecord : mind/growth v1 {
+    action_id: bytes(16),
+    user_id: bytes(16),
+    domain: u8,
+    description_hash: bytes(32),
+    source_framework: string,
+    priority_bps: u16,
+    status: u8,
+    evidence_count: u32,
+    created_at: u64,
+    last_evidence_at: u64,
+    progress_bps: u16,
+}
+    store kv
+    govern lex esn/global/org/polyqlabs/mind/growth
+    cortex {
+        infer on_write
+        on_suggestion store "cortex/mind/growth_feedback"
+    }
+
+data GrowthEvidenceRecord : mind/growth v1 {
+    evidence_id: bytes(16),
+    action_id: bytes(16),
+    user_id: bytes(16),
+    evidence_type: u8,
+    description_hash: bytes(32),
+    resonance_id: bytes(32),
+    insight_id: bytes(16),
+    significance_bps: u16,
+    captured_at: u64,
+}
+    store kv
+    govern lex esn/global/org/polyqlabs/mind/growth
+
+data GrowthSnapshotRecord : mind/growth v1 {
+    snapshot_id: bytes(16),
+    user_id: bytes(16),
+    snapshot_at: u64,
+    health_level: u8,
+    active_actions: u32,
+    completed_actions: u32,
+    integration_progress_bps: u16,
+    stress_indicator_bps: u16,
+    domain_summary_hash: bytes(32),
+}
+    store kv
+    govern lex esn/global/org/polyqlabs/mind/growth
+
+// ── Internal Types ──────────────────────────────────────────────
+
+type GrowthActionTemplate = struct {
+    domain: u8,
+    description: string,
+    source_framework: string,
+    priority_bps: u16,
+}
+
+type ResonanceGrowthLink = struct {
+    resonance_id: bytes(32),
+    action_id: bytes(16),
+    relevance_bps: u16,
+    growth_direction: u8,
+    auto_detected: bool,
+}
+
+type GrowthDashboard = struct {
+    core_type: u8,
+    health_level: u8,
+    integration_type: u8,
+    integration_progress_bps: u16,
+    stress_indicator_bps: u16,
+    active_actions: u32,
+    completed_actions: u32,
+    total_evidence: u32,
+    top_growth_domains: list<DomainProgress>,
+    recent_resonance_links: u32,
+}
+
+type DomainProgress = struct {
+    domain: u8,
+    progress_bps: u16,
+    trend: u8,
+    evidence_count: u32,
+}
+
+// ── Integration line lookup ─────────────────────────────────────
+
+circuit integration_type_for(core_type: u8) -> u8
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/growth
+    precision A
+    povc true
+    test golden "type_1_integrates_to_7" { assert integration_type_for(1) == 7 }
+    test golden "type_7_integrates_to_5" { assert integration_type_for(7) == 5 }
+    test golden "type_9_integrates_to_3" { assert integration_type_for(9) == 3 }
+{
+    match core_type {
+        1 => 7,
+        2 => 4,
+        3 => 6,
+        4 => 1,
+        5 => 8,
+        6 => 9,
+        7 => 5,
+        8 => 2,
+        9 => 3,
+        _ => 0,
+    }
+}
+
+circuit disintegration_type_for(core_type: u8) -> u8
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/growth
+    precision A
+    povc true
+    test golden "type_1_disintegrates_to_4" { assert disintegration_type_for(1) == 4 }
+    test golden "type_7_disintegrates_to_1" { assert disintegration_type_for(7) == 1 }
+{
+    match core_type {
+        1 => 4,
+        2 => 8,
+        3 => 9,
+        4 => 2,
+        5 => 7,
+        6 => 3,
+        7 => 1,
+        8 => 5,
+        9 => 6,
+        _ => 0,
+    }
+}
+
+// ── Set Enneagram Profile ───────────────────────────────────────
+
+circuit set_enneagram_profile(
+    user_id: bytes(16),
+    core_type: u8,
+    wing: u8,
+    tritype: list<u8>,
+    instinctual_stack: list<u8>,
+    health_level: u8,
+    assessment_source: u8,
+    signing_sk: bytes(4896),
+) -> EnneagramProfileRecord
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/growth
+    precision C
+    povc true
+    observe metrics: [profiles_set, profile_updates]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [now, mldsa_sign]
+    test golden "set_valid_profile" {
+        let sk = bytes(4896, 0xBB)
+        let result = set_enneagram_profile(bytes(16, 0x01), 7, 6, [7, 2, 9], [1, 0, 2], 5, 2, sk)
+        assert result.core_type == 7
+        assert result.wing == 6
+        assert result.integration_type == 5
+        assert result.disintegration_type == 1
+    }
+{
+    let ts = now_ns() / 1000000
+    let integration = integration_type_for(core_type)
+    let disintegration = disintegration_type_for(core_type)
+
+    let confidence = match assessment_source {
+        0 => 10000,
+        1 => 7000,
+        2 => 5000,
+        3 => 3000,
+        _ => 2000,
+    }
+
+    let record = EnneagramProfileRecord {
+        user_id: user_id,
+        core_type: core_type,
+        wing: wing,
+        integration_type: integration,
+        disintegration_type: disintegration,
+        tritype_head: if len(tritype) > 0 { tritype[0] } else { 0 },
+        tritype_heart: if len(tritype) > 1 { tritype[1] } else { 0 },
+        tritype_gut: if len(tritype) > 2 { tritype[2] } else { 0 },
+        instinctual_primary: if len(instinctual_stack) > 0 { instinctual_stack[0] } else { 0 },
+        instinctual_secondary: if len(instinctual_stack) > 1 { instinctual_stack[1] } else { 0 },
+        instinctual_tertiary: if len(instinctual_stack) > 2 { instinctual_stack[2] } else { 0 },
+        health_level: health_level,
+        assessment_source: assessment_source,
+        confidence_bps: confidence,
+        assessed_at: ts,
+        updated_at: ts,
+    }
+
+    let _sig = mldsa_sign(signing_sk, serialize(record))
+    eslm_feed(personal_growth, serialize(record), confidence)
+
+    qkit_metering::record_usage(user_id, "mind_growth_profile", DimensionValues {
+        executions: 1, hashes: 1, bandwidth: 0,
+        storage: 256, observables: 1, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    record
+}
+
+// ── Generate Growth Actions ─────────────────────────────────────
+
+circuit generate_growth_actions(
+    user_id: bytes(16),
+    profile: EnneagramProfileRecord,
+) -> list<GrowthActionRecord>
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/growth
+    precision C
+    povc true
+    observe metrics: [growth_actions_generated]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [now]
+    test golden "type_7_generates_depth_actions" {
+        let profile = EnneagramProfileRecord {
+            user_id: bytes(16, 0x01), core_type: 7, wing: 6,
+            integration_type: 5, disintegration_type: 1,
+            tritype_head: 7, tritype_heart: 2, tritype_gut: 9,
+            instinctual_primary: 1, instinctual_secondary: 0, instinctual_tertiary: 2,
+            health_level: 5, assessment_source: 2, confidence_bps: 5000,
+            assessed_at: 1000, updated_at: 1000,
+        }
+        let actions = generate_growth_actions(bytes(16, 0x01), profile)
+        assert len(actions) >= 3
+    }
+{
+    let ts = now_ns() / 1000000
+    let templates = growth_templates_for_type(profile.core_type)
+    let actions = []
+
+    for i in 0..len(templates) {
+        let template = templates[i]
+        let action_id = bit_slice(sha3_256(concat(user_id, template.description, ts, i)), 0, 128)
+        let action = GrowthActionRecord {
+            action_id: action_id,
+            user_id: user_id,
+            domain: template.domain,
+            description_hash: sha3_256(template.description),
+            source_framework: template.source_framework,
+            priority_bps: template.priority_bps,
+            status: 0,
+            evidence_count: 0,
+            created_at: ts,
+            last_evidence_at: 0,
+            progress_bps: 0,
+        }
+        actions.push(action)
+    }
+
+    qkit_metering::record_usage(user_id, "mind_growth_generate", DimensionValues {
+        executions: 1, hashes: len(actions), bandwidth: 0,
+        storage: len(actions) * 128, observables: 1, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    actions
+}
+
+// ── Growth Templates by Type ────────────────────────────────────
+
+circuit growth_templates_for_type(core_type: u8) -> list<GrowthActionTemplate>
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/growth
+    precision B
+    povc true
+{
+    match core_type {
+        1 => [
+            GrowthActionTemplate { domain: 0, description: "Practice accepting imperfection in a low-stakes area", source_framework: "enneagram", priority_bps: 9000 },
+            GrowthActionTemplate { domain: 0, description: "Schedule unstructured play or spontaneous activity weekly", source_framework: "enneagram", priority_bps: 8500 },
+            GrowthActionTemplate { domain: 0, description: "Explore a topic purely for joy, without evaluating quality", source_framework: "enneagram", priority_bps: 8000 },
+            GrowthActionTemplate { domain: 6, description: "Notice inner critic voice and practice compassionate reframe", source_framework: "enneagram", priority_bps: 7500 },
+        ],
+        2 => [
+            GrowthActionTemplate { domain: 0, description: "Identify and express a personal need without connecting it to others", source_framework: "enneagram", priority_bps: 9000 },
+            GrowthActionTemplate { domain: 0, description: "Engage in creative self-expression (art, writing, music)", source_framework: "enneagram", priority_bps: 8500 },
+            GrowthActionTemplate { domain: 5, description: "Practice receiving help without reciprocating immediately", source_framework: "enneagram", priority_bps: 8000 },
+            GrowthActionTemplate { domain: 6, description: "Set a boundary and maintain it for one week", source_framework: "enneagram", priority_bps: 7500 },
+        ],
+        3 => [
+            GrowthActionTemplate { domain: 0, description: "Share a genuine failure or vulnerability with someone trusted", source_framework: "enneagram", priority_bps: 9000 },
+            GrowthActionTemplate { domain: 0, description: "Commit to a process without focusing on the outcome", source_framework: "enneagram", priority_bps: 8500 },
+            GrowthActionTemplate { domain: 5, description: "Build a relationship where you have nothing to gain professionally", source_framework: "enneagram", priority_bps: 8000 },
+            GrowthActionTemplate { domain: 6, description: "Ask 'who am I when no one is watching?' and journal the answer", source_framework: "enneagram", priority_bps: 7500 },
+        ],
+        4 => [
+            GrowthActionTemplate { domain: 0, description: "Complete a commitment you started, even when inspiration fades", source_framework: "enneagram", priority_bps: 9000 },
+            GrowthActionTemplate { domain: 0, description: "Establish a consistent daily routine and follow it for 30 days", source_framework: "enneagram", priority_bps: 8500 },
+            GrowthActionTemplate { domain: 0, description: "Take action on a goal without waiting to feel ready", source_framework: "enneagram", priority_bps: 8000 },
+            GrowthActionTemplate { domain: 4, description: "Balance emotional intensity with objective analysis in a decision", source_framework: "enneagram", priority_bps: 7500 },
+        ],
+        5 => [
+            GrowthActionTemplate { domain: 0, description: "Take decisive action on something without gathering more information", source_framework: "enneagram", priority_bps: 9000 },
+            GrowthActionTemplate { domain: 0, description: "Share knowledge or expertise publicly without hedging", source_framework: "enneagram", priority_bps: 8500 },
+            GrowthActionTemplate { domain: 0, description: "Engage in a physical activity that requires full-body presence", source_framework: "enneagram", priority_bps: 8000 },
+            GrowthActionTemplate { domain: 5, description: "Initiate social contact rather than waiting to be invited", source_framework: "enneagram", priority_bps: 7500 },
+        ],
+        6 => [
+            GrowthActionTemplate { domain: 0, description: "Practice stillness and trust your own judgment on a decision", source_framework: "enneagram", priority_bps: 9000 },
+            GrowthActionTemplate { domain: 0, description: "Release a worst-case scenario by naming it and choosing peace", source_framework: "enneagram", priority_bps: 8500 },
+            GrowthActionTemplate { domain: 7, description: "Make a decision without seeking external validation first", source_framework: "enneagram", priority_bps: 8000 },
+            GrowthActionTemplate { domain: 6, description: "Sit with uncertainty for a day without resolving it", source_framework: "enneagram", priority_bps: 7500 },
+        ],
+        7 => [
+            GrowthActionTemplate { domain: 0, description: "Stay with one project or topic for extended focus without switching", source_framework: "enneagram", priority_bps: 9000 },
+            GrowthActionTemplate { domain: 0, description: "Process a difficult emotion fully instead of reframing to positive", source_framework: "enneagram", priority_bps: 8500 },
+            GrowthActionTemplate { domain: 0, description: "Choose depth over breadth: go deep into one subject this month", source_framework: "enneagram", priority_bps: 8000 },
+            GrowthActionTemplate { domain: 7, description: "Practice saying 'I don't know' without immediately researching", source_framework: "enneagram", priority_bps: 7500 },
+        ],
+        8 => [
+            GrowthActionTemplate { domain: 0, description: "Show vulnerability to someone you trust without controlling the outcome", source_framework: "enneagram", priority_bps: 9000 },
+            GrowthActionTemplate { domain: 0, description: "Listen to someone's full perspective without interrupting or fixing", source_framework: "enneagram", priority_bps: 8500 },
+            GrowthActionTemplate { domain: 0, description: "Nurture someone without an agenda or expectation of loyalty", source_framework: "enneagram", priority_bps: 8000 },
+            GrowthActionTemplate { domain: 4, description: "Acknowledge when you are wrong, openly and without justification", source_framework: "enneagram", priority_bps: 7500 },
+        ],
+        9 => [
+            GrowthActionTemplate { domain: 0, description: "State a clear personal preference when asked 'what do you want?'", source_framework: "enneagram", priority_bps: 9000 },
+            GrowthActionTemplate { domain: 0, description: "Pursue a personal goal that matters to you, not just the group", source_framework: "enneagram", priority_bps: 8500 },
+            GrowthActionTemplate { domain: 0, description: "Engage in healthy conflict: express disagreement constructively", source_framework: "enneagram", priority_bps: 8000 },
+            GrowthActionTemplate { domain: 4, description: "Notice when you are numbing out and choose to engage instead", source_framework: "enneagram", priority_bps: 7500 },
+        ],
+        _ => [],
+    }
+}
+
+// ── Record Growth Evidence ──────────────────────────────────────
+
+circuit record_growth_evidence(
+    user_id: bytes(16),
+    action_id: bytes(16),
+    evidence_type: u8,
+    description: string,
+    resonance_id: option<bytes(32)>,
+    signing_sk: bytes(4896),
+) -> GrowthEvidenceRecord
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/growth
+    precision C
+    povc true
+    observe metrics: [evidence_recorded, evidence_by_type]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [now, mldsa_sign]
+    test golden "record_self_report" {
+        let sk = bytes(4896, 0xBB)
+        let result = record_growth_evidence(
+            bytes(16, 0x01), bytes(16, 0x02), 0,
+            "Practiced accepting imperfection today", Option::None, sk)
+        assert result.evidence_type == 0
+        assert result.significance_bps > 0
+    }
+{
+    let ts = now_ns() / 1000000
+    let evidence_id = bit_slice(sha3_256(concat(user_id, action_id, ts)), 0, 128)
+
+    let significance = match evidence_type {
+        0 => 5000,
+        1 => 7000,
+        2 => 8000,
+        3 => 6000,
+        4 => 7500,
+        _ => 3000,
+    }
+
+    let record = GrowthEvidenceRecord {
+        evidence_id: evidence_id,
+        action_id: action_id,
+        user_id: user_id,
+        evidence_type: evidence_type,
+        description_hash: sha3_256(description),
+        resonance_id: match resonance_id {
+            Option::Some(r) => r,
+            Option::None => bytes(32, 0x00),
+        },
+        insight_id: bytes(16, 0x00),
+        significance_bps: significance,
+        captured_at: ts,
+    }
+
+    let _sig = mldsa_sign(signing_sk, serialize(record))
+    eslm_feed(personal_growth, serialize(record), significance)
+
+    qkit_metering::record_usage(user_id, "mind_growth_evidence", DimensionValues {
+        executions: 1, hashes: 1, bandwidth: 0,
+        storage: 128, observables: 1, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    record
+}
+
+// ── Link Resonance to Growth ────────────────────────────────────
+
+circuit link_resonance_to_growth(
+    user_id: bytes(16),
+    resonance_id: bytes(32),
+    topic_sentiments: list<string>,
+    active_actions: list<GrowthActionRecord>,
+    enneagram_profile: EnneagramProfileRecord,
+) -> list<ResonanceGrowthLink>
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/growth
+    precision C
+    povc true
+    observe metrics: [resonance_growth_links, auto_links, integration_links]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [eslm_similarity]
+{
+    let links = []
+    let integration_keywords = integration_keywords_for_type(enneagram_profile.core_type)
+
+    for action in active_actions {
+        for topic in topic_sentiments {
+            let relevance = eslm_similarity(topic, action.description_hash)
+            if relevance > 4000 {
+                let direction = if action.domain == 0 { 0 }
+                    else if action.domain == 1 { 1 }
+                    else { 2 }
+
+                links.push(ResonanceGrowthLink {
+                    resonance_id: resonance_id,
+                    action_id: action.action_id,
+                    relevance_bps: relevance,
+                    growth_direction: direction,
+                    auto_detected: true,
+                })
+            }
+        }
+    }
+
+    qkit_metering::record_usage(user_id, "mind_growth_link_resonance", DimensionValues {
+        executions: 1, hashes: len(links), bandwidth: 0,
+        storage: 0, observables: 1, proofs: 0, circuits: 1, mpc_sessions: 0,
+    })
+
+    links
+}
+
+circuit integration_keywords_for_type(core_type: u8) -> list<string>
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/growth
+    precision A
+    povc true
+{
+    match core_type {
+        1 => ["spontaneity", "joy", "play", "freedom", "adventure", "relaxation"],
+        2 => ["self-awareness", "creativity", "boundaries", "identity", "solitude"],
+        3 => ["loyalty", "authenticity", "team", "trust", "vulnerability", "process"],
+        4 => ["discipline", "objectivity", "consistency", "structure", "action"],
+        5 => ["confidence", "engagement", "action", "leadership", "physicality"],
+        6 => ["peace", "trust", "stillness", "acceptance", "serenity"],
+        7 => ["depth", "focus", "wisdom", "contemplation", "patience", "solitude"],
+        8 => ["vulnerability", "tenderness", "nurture", "empathy", "service"],
+        9 => ["assertion", "ambition", "goals", "initiative", "self-expression"],
+        _ => [],
+    }
+}
+
+// ── Compute Growth Snapshot ─────────────────────────────────────
+
+circuit compute_growth_snapshot(
+    user_id: bytes(16),
+    actions: list<GrowthActionRecord>,
+    enneagram: EnneagramProfileRecord,
+) -> GrowthSnapshotRecord
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/growth
+    precision C
+    povc true
+    observe metrics: [snapshots_computed, integration_progress_avg]
+    meters [compute_cycles, memory_bytes]
+    wasm_abi [now]
+{
+    let ts = now_ns() / 1000000
+    let snapshot_id = bit_slice(sha3_256(concat(user_id, ts)), 0, 128)
+
+    let active = 0
+    let completed = 0
+    let integration_evidence = 0
+    let total_integration_actions = 0
+    let stress_signals = 0
+
+    for action in actions {
+        if action.status == 1 or action.status == 2 { active = active + 1 }
+        if action.status == 3 { completed = completed + 1 }
+        if action.domain == 0 {
+            total_integration_actions = total_integration_actions + 1
+            integration_evidence = integration_evidence + action.progress_bps
+        }
+    }
+
+    let integration_progress = if total_integration_actions > 0 {
+        integration_evidence / total_integration_actions
+    } else { 0 }
+
+    GrowthSnapshotRecord {
+        snapshot_id: snapshot_id,
+        user_id: user_id,
+        snapshot_at: ts,
+        health_level: enneagram.health_level,
+        active_actions: active,
+        completed_actions: completed,
+        integration_progress_bps: integration_progress,
+        stress_indicator_bps: stress_signals,
+        domain_summary_hash: sha3_256(concat(user_id, integration_progress, ts)),
+    }
+}
+
+// ── Detect Stress Pattern ───────────────────────────────────────
+
+circuit detect_stress_pattern(
+    user_id: bytes(16),
+    recent_snapshots: list<GrowthSnapshotRecord>,
+    enneagram: EnneagramProfileRecord,
+) -> u16
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/growth
+    precision C
+    povc true
+    observe metrics: [stress_detections, stress_level_avg]
+    meters [compute_cycles]
+{
+    if len(recent_snapshots) < 2 { return 0 }
+
+    let latest = recent_snapshots[len(recent_snapshots) - 1]
+    let previous = recent_snapshots[len(recent_snapshots) - 2]
+
+    let integration_declining = latest.integration_progress_bps < previous.integration_progress_bps
+    let evidence_stalling = latest.active_actions > 0 and latest.completed_actions == previous.completed_actions
+
+    let stress = 0
+    if integration_declining { stress = stress + 3000 }
+    if evidence_stalling { stress = stress + 2000 }
+    if latest.health_level > previous.health_level { stress = stress + 2500 }
+    if stress > 10000 { stress = 10000 }
+
+    stress
+}
+
+// ── Growth Dashboard ────────────────────────────────────────────
+
+circuit get_growth_dashboard(
+    user_id: bytes(16),
+    enneagram: EnneagramProfileRecord,
+    actions: list<GrowthActionRecord>,
+    recent_links: u32,
+) -> GrowthDashboard
+    profile poly_framework_standard
+    lex esn/global/org/polyqlabs/mind/growth
+    precision B
+    povc true
+    observe metrics: [dashboard_views]
+{
+    let active = 0
+    let completed = 0
+    let total_evidence = 0
+
+    for action in actions {
+        if action.status == 1 or action.status == 2 { active = active + 1 }
+        if action.status == 3 { completed = completed + 1 }
+        total_evidence = total_evidence + action.evidence_count
+    }
+
+    let snapshot = compute_growth_snapshot(user_id, actions, enneagram)
+
+    GrowthDashboard {
+        core_type: enneagram.core_type,
+        health_level: enneagram.health_level,
+        integration_type: enneagram.integration_type,
+        integration_progress_bps: snapshot.integration_progress_bps,
+        stress_indicator_bps: snapshot.stress_indicator_bps,
+        active_actions: active,
+        completed_actions: completed,
+        total_evidence: total_evidence,
+        top_growth_domains: [],
+        recent_resonance_links: recent_links,
+    }
+}

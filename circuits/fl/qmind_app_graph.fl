@@ -1,8 +1,8 @@
 /// Spec: specs/POLYMIND_CE_APP_GRAPH_SPEC.md
-/// PolyMind App Graph — 13 ModuleNode definitions composing the personal ESLM
-/// corpus + digital legacy product. Registers intra-graph REQUIRES edges and
-/// cross-graph BRIDGE_TO edges to QKit (ESLM classify) and PolyDocs
-/// (document ingest).
+/// PolyMind App Graph — 14 ModuleNode definitions composing the personal ESLM
+/// corpus, digital legacy, and personal growth product. Registers intra-graph
+/// REQUIRES edges and cross-graph BRIDGE_TO edges to QKit (ESLM classify),
+/// PolyDocs (document ingest), and eStream Resonance (growth linking).
 
 lex polyqlabs/qmind
 
@@ -25,7 +25,7 @@ const POLYMIND_VERSION_MINOR: u32 = 1
 const POLYMIND_VERSION_PATCH: u32 = 0
 const POLYMIND_APP_LEX: string = "polyqlabs/qmind"
 const POLYMIND_VERSION_STR: string = "0.1.0"
-const POLYMIND_MODULE_COUNT: u64 = 13
+const POLYMIND_MODULE_COUNT: u64 = 14
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Internal helper — common ModuleNode construction
@@ -235,8 +235,20 @@ circuit legacy_dag_module() -> ModuleNode
             storage: 100000, observe_events: 200, proofs: 80, consensus: 20, memory: 16777216 })
 }
 
+// ── qmind_growth ── Enneagram-centered personal growth tracking ──────────
+
+circuit qmind_growth_module() -> ModuleNode
+    lex polyqlabs/qmind  @status draft  @precision D
+    observe metrics: [module_name]  meters [compute_cycles]
+{
+    make_qmind_module("qmind_growth", AperturePartition::Backend as u8,
+        SLATier::Standard as u8,
+        ResourceBudget8D { execution: 25000, hash_ops: 600, bandwidth: 5000,
+            storage: 20000, observe_events: 400, proofs: 20, consensus: 5, memory: 16777216 })
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// §2  Graph Registration (13 modules)
+// §2  Graph Registration (14 modules)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 circuit qmind_app_graph_register(graph: CsrStorage) -> CsrStorage
@@ -261,6 +273,7 @@ circuit qmind_app_graph_register(graph: CsrStorage) -> CsrStorage
     let (g, id_legacy)       = module_graph_add_module(g, qmind_legacy_module())
     let (g, id_kg)           = module_graph_add_module(g, knowledge_graph_module())
     let (g, id_dag)          = module_graph_add_module(g, legacy_dag_module())
+    let (g, id_growth)       = module_graph_add_module(g, qmind_growth_module())
 
     let ver = POLYMIND_VERSION_STR
     let vc = ">=" ++ POLYMIND_VERSION_STR
@@ -359,6 +372,20 @@ circuit qmind_app_graph_register(graph: CsrStorage) -> CsrStorage
         target_module: "qmind_rbac", target_version_constraint: vc, metadata: bytes(0),
     }, id_health, id_rbac)
 
+    // qmind_growth -> knowledge_graph, qmind_insight, qmind_classify
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "qmind_growth", source_version: ver,
+        target_module: "knowledge_graph", target_version_constraint: vc, metadata: bytes(0),
+    }, id_growth, id_kg)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "qmind_growth", source_version: ver,
+        target_module: "qmind_insight", target_version_constraint: vc, metadata: bytes(0),
+    }, id_growth, id_insight)
+    let g = module_graph_add_edge(g, ModuleEdge {
+        edge_type: EDGE_REQUIRES, source_module: "qmind_growth", source_version: ver,
+        target_module: "qmind_classify", target_version_constraint: vc, metadata: bytes(0),
+    }, id_growth, id_classify)
+
     g
 }
 
@@ -397,6 +424,18 @@ circuit qmind_register_bridge_edges(graph: CsrStorage) -> CsrStorage
         }) as bytes
         let (g2, bid1) = graph_add_node(g, 0xB0, bridge_qkit)
         g = graph_add_edge(g2, id_classify, bid1, EDGE_BRIDGE_TO, bridge_qkit)
+    }
+
+    // BRIDGE_TO: qmind_growth -> eStream Resonance
+    let id_growth = find_qmind_module_id(g, "qmind_growth")
+    if id_growth != 0xFFFFFFFF as u32 {
+        let bridge_resonance = serialize(PolymindBridgeEdgeData {
+            source_lex: POLYMIND_APP_LEX, source_module: "qmind_growth",
+            target_lex: "esn/global/intelligence/ai", target_module: "resonance",
+            bridge_type: "growth_resonance_linking", timestamp_ms: 0,
+        }) as bytes
+        let (g2, bid_r) = graph_add_node(g, 0xB0, bridge_resonance)
+        g = graph_add_edge(g2, id_growth, bid_r, EDGE_BRIDGE_TO, bridge_resonance)
     }
 
     // BRIDGE_TO: qmind_document_ingest -> PolyDocs parser
@@ -454,8 +493,8 @@ circuit test_qmind_app_graph_register()
 {
     let empty = CsrStorage::new(4096)
     let g = qmind_app_graph_register(empty)
-    assert g.num_nodes == 13, "expected 13 modules"
-    assert g.num_edges >= 19, "expected at least 19 REQUIRES edges"
+    assert g.num_nodes == 14, "expected 14 modules"
+    assert g.num_edges >= 22, "expected at least 22 REQUIRES edges"
 }
 
 #[test]
@@ -465,7 +504,7 @@ circuit test_qmind_bridge_edges()
     let empty = CsrStorage::new(4096)
     let g = qmind_app_graph_register(empty)
     let g = qmind_register_bridge_edges(g)
-    assert g.num_nodes == 15, "expected 13 modules + 2 bridge nodes"
+    assert g.num_nodes == 17, "expected 14 modules + 3 bridge nodes"
 }
 
 #[test]
